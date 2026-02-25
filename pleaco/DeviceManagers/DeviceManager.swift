@@ -118,7 +118,9 @@ class DeviceManager: ObservableObject {
 
     @Published var devices: [SavedDevice] = []
     @Published var activeDeviceId: UUID?
-    @Published var selectedPreset: DeviceWavePreset = .sine75
+    @Published var selectedPreset: DeviceWavePreset = .sine75 {
+        didSet { UserDefaults.standard.set(selectedPreset.rawValue, forKey: "selectedPreset") }
+    }
     @Published var isPlaying: Bool = false
     @Published var currentLevel: Double = 0
     @Published var strokeMin: Double = 0 {
@@ -146,15 +148,21 @@ class DeviceManager: ObservableObject {
 
     @Published var waveTime: Double = 0
     @Published var activeFunScript: FunScriptData? = nil
-    @Published var activeFunScriptId: UUID? = nil
+    @Published var activeFunScriptId: UUID? = nil {
+        didSet { UserDefaults.standard.set(activeFunScriptId?.uuidString, forKey: "activeFunScriptId") }
+    }
     @Published var funScriptPositionMs: Double = 0
     @Published var customScripts: [NamedFunScript] = []
     
     /// Persistent selection for LoveSpouse (1-9), independent of isPlaying
-    @Published var selectedLoveSpouseProgram: Int = 1
+    /// Persistent selection for LoveSpouse (1-9), independent of isPlaying
+    @Published var selectedLoveSpouseProgram: Int = 1 {
+        didSet { UserDefaults.standard.set(selectedLoveSpouseProgram, forKey: "selectedLoveSpouseProgram") }
+    }
 
     private var waveTimer: Timer?
     private var connectionSubscription: AnyCancellable?
+    private var loveSpouseSubscription: AnyCancellable?
 
     var activeDevice: SavedDevice? {
         guard let id = activeDeviceId else { return nil }
@@ -239,6 +247,20 @@ class DeviceManager: ObservableObject {
                 if let device = self.activeDevice, device.isConnected {
                     // If we are playing but hardware hasn't started yet because it was offline
                     self.ensureHardwareStarted()
+                }
+            }
+        
+        // Reactive observer for LoveSpouse readiness
+        loveSpouseSubscription = loveSpouseManager.$isConnected
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isConnected in
+                guard let self = self else { return }
+                if let device = self.activeDevice, device.type == .lovespouse {
+                    if device.isConnected != isConnected {
+                        device.isConnected = isConnected
+                        self.objectWillChange.send()
+                        NSLog("🔔 DeviceManager: LoveSpouse reactive sync – Connected: \(isConnected)")
+                    }
                 }
             }
     }
@@ -347,7 +369,8 @@ class DeviceManager: ObservableObject {
                 }
             }
         case .internal:
-            break
+            device.isConnected = hapticManager.isSupported
+            objectWillChange.send()
         }
     }
 
@@ -512,6 +535,7 @@ class DeviceManager: ObservableObject {
         guard activeDevice?.type == .lovespouse else { return }
         
         // Reset software patterns
+        stopWaveTimer()
         selectedPreset = .sine75 // Neutral state for software
         activeFunScript = nil
         activeFunScriptId = nil
@@ -646,7 +670,14 @@ class DeviceManager: ObservableObject {
     private func startWaveTimer() {
         // FunScript branch: 50 Hz timer advances position through the script
         if let script = activeFunScript {
-            let fsInterval: TimeInterval = (activeDevice?.type == .handy || activeDevice?.type == .oh) ? 0.1 : 0.02
+            let fsInterval: TimeInterval
+            if activeDevice?.type == .handy || activeDevice?.type == .oh {
+                fsInterval = 0.1
+            } else if activeDevice?.type == .lovespouse {
+                fsInterval = 0.2 // Throttle to 5Hz to avoid BLE cancel-loop
+            } else {
+                fsInterval = 0.02
+            }
             waveTimer = Timer.scheduledTimer(withTimeInterval: fsInterval, repeats: true) { [weak self] _ in
                 guard let self = self, self.isPlaying else {
                     self?.stopWaveTimer()
@@ -673,9 +704,11 @@ class DeviceManager: ObservableObject {
 
         var interval = timerInterval(for: selectedPreset)
         
-        // Cloud devices (Handy, Oh) cannot handle high-frequency updates (>10Hz is risky)
+        // Cloud/BLE devices cannot handle high-frequency updates
         if activeDevice?.type == .handy || activeDevice?.type == .oh {
             interval = max(0.1, interval)
+        } else if activeDevice?.type == .lovespouse {
+            interval = max(0.2, interval) // Throttle to 5Hz
         }
 
         waveTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
@@ -707,6 +740,12 @@ class DeviceManager: ObservableObject {
 
     private func sendLevel(_ level: Double) {
         guard let device = activeDevice, device.isConnected else { return }
+
+        // Safety: If a LoveSpouse hardware program is active, ignore software speed updates
+        // to prevent command collisions that lead to "stuck" vibration.
+        if device.type == .lovespouse && selectedLoveSpouseProgram > 0 {
+            return
+        }
 
         switch device.type {
         case .handy:
@@ -854,26 +893,43 @@ class DeviceManager: ObservableObject {
         self.defaultIntensity = savedIntensity > 0 ? savedIntensity : 50
         self.currentLevel = self.defaultIntensity
 
+        self.selectedLoveSpouseProgram = UserDefaults.standard.integer(forKey: "selectedLoveSpouseProgram")
+
+        if let presetRaw = UserDefaults.standard.string(forKey: "selectedPreset"),
+           let preset = DeviceWavePreset(rawValue: presetRaw) {
+            self.selectedPreset = preset
+        }
+
+        if let scriptIdString = UserDefaults.standard.string(forKey: "activeFunScriptId"),
+           let scriptId = UUID(uuidString: scriptIdString),
+           let script = customScripts.first(where: { $0.id == scriptId }) {
+            self.activeFunScriptId = scriptId
+            self.activeFunScript = script.data
+        }
+
         // Restore saved device or default to internal haptics
         if let idString = UserDefaults.standard.string(forKey: "activeDeviceId"),
            let uuid = UUID(uuidString: idString),
            let device = devices.first(where: { $0.id == uuid }) {
             activeDeviceId = device.id
+            
+            // Re-configure managers
             switch device.type {
             case .handy, .oh:
                 handyManager.connectionKey = device.connectionKey
                 handyManager.deviceType = device.type == .handy ? "The Handy" : "Oh."
             case .intiface:
                 buttplugManager.serverAddress = device.serverAddress
-            case .lovespouse:
-                device.isConnected = loveSpouseManager.isConnected
-            case .internal:
-                device.isConnected = hapticManager.isSupported
+            case .lovespouse, .internal:
+                break
             }
+            
+            // Handshake AFTER configuration
+            checkDeviceConnectionAsync(device)
         } else {
             // Default to internal haptics
             activeDeviceId = internalDevice.id
-            internalDevice.isConnected = hapticManager.isSupported
+            checkDeviceConnectionAsync(internalDevice)
         }
     }
 

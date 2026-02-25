@@ -13,22 +13,8 @@ struct ContentView: View {
     }
 
     var body: some View {
-        TabView(selection: $activeTab) {
-            NavigationStack {
-                HomeView()
-            }
-            .tabItem {
-                Label("Control", systemImage: activeTab == .control ? "heart.circle.fill" : "heart.circle")
-            }
-            .tag(AppTab.control)
-
-
-
-            SettingsView()
-                .tabItem {
-                    Label("Einstellungen", systemImage: "gearshape.fill")
-                }
-                .tag(AppTab.devices)
+        NavigationStack {
+            HomeView()
         }
         .tint(Color.appAccent)
     }

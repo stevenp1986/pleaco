@@ -2,6 +2,7 @@ import SwiftUI
 import Combine
 
 struct SettingsView: View {
+    @Environment(\.dismiss) var dismiss
     @ObservedObject var deviceManager = DeviceManager.shared
     @State private var showingAddEditor = false
     @State private var deviceToEdit: SavedDevice? = nil
@@ -14,17 +15,18 @@ struct SettingsView: View {
 
                     playbackSection
                 }
-                .padding(.vertical, 8)
+                .padding(.top, 32)
                 .padding(.bottom, 60)
             }
             .scrollClipDisabled()
             .background(Color.surfacePrimary)
-            .navigationTitle("Einstellungen")
             .sheet(isPresented: $showingAddEditor) {
                 DeviceEditorSheet(deviceManager: deviceManager, editingDevice: nil)
+                    .presentationDragIndicator(.visible)
             }
             .sheet(item: $deviceToEdit) { device in
                 DeviceEditorSheet(deviceManager: deviceManager, editingDevice: device)
+                    .presentationDragIndicator(.visible)
             }
         }
     }
@@ -51,11 +53,15 @@ struct SettingsView: View {
             }
             .padding(.horizontal)
 
-            DeviceCard(device: deviceManager.internalDevice) { }
+            DeviceCard(device: deviceManager.internalDevice, onEdit: { }) {
+                dismiss()
+            }
 
             ForEach(deviceManager.devices) { device in
-                DeviceCard(device: device) {
+                DeviceCard(device: device, onEdit: {
                     deviceToEdit = device
+                }) {
+                    dismiss()
                 }
             }
         }
@@ -125,6 +131,7 @@ struct DeviceCard: View {
     @ObservedObject var device: SavedDevice
     @ObservedObject var deviceManager = DeviceManager.shared
     var onEdit: () -> Void
+    var onSelect: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -144,9 +151,20 @@ struct DeviceCard: View {
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(device.name)
-                        .font(.headline)
-                        .foregroundColor(deviceManager.activeDeviceId == device.id ? .white : .primary)
+                    HStack(spacing: 8) {
+                        Text(device.name)
+                            .font(.headline)
+                            .foregroundColor(deviceManager.activeDeviceId == device.id ? .white : .primary)
+                        
+                        if deviceManager.activeDeviceId == device.id && device.isConnected {
+                            Text("BEREIT")
+                                .font(.system(size: 9, weight: .bold, design: .rounded))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(Color.white.opacity(0.2)))
+                                .foregroundColor(.white)
+                        }
+                    }
 
                     HStack(spacing: 6) {
                         Circle()
@@ -172,11 +190,13 @@ struct DeviceCard: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(16)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 16)
             .contentShape(Rectangle())
             .onTapGesture {
                 withAnimation(.spring(response: 0.3)) {
                     deviceManager.setActiveDevice(device)
+                    onSelect()
                 }
             }
         }

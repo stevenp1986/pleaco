@@ -12,8 +12,6 @@ struct HomeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PlayerCard()
-
             ScrollView {
                 VStack(spacing: 28) {
                     patternsSection
@@ -22,10 +20,37 @@ struct HomeView: View {
                 .padding(.vertical, 12)
                 .padding(.bottom, 20)
             }
+            
+            PlayerCard()
         }
         .background(Color.surfacePrimary)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationTitle("")
+        .navigationTitle("Pleaco")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                settingsButton
+            }
+        }
+        // Sheets for navigation from toolbar
+        .sheet(isPresented: $showingSettings) {
+            SettingsView()
+                .presentationDragIndicator(.visible)
+        }
+    }
+    
+    @State private var showingSettings = false
+
+    
+    private var settingsButton: some View {
+        Button {
+            showingSettings = true
+        } label: {
+            Image(systemName: "gearshape")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundColor(.primary)
+                .padding(8)
+                .background(Circle().fill(Color.surfaceSecondary))
+        }
     }
 
     // MARK: – Patterns
@@ -37,7 +62,7 @@ struct HomeView: View {
             // 1. Hardware Programs (LoveSpouse only)
             if deviceManager.activeDevice?.type == .lovespouse {
                 VStack(alignment: .leading, spacing: 12) {
-                    SectionHeader(title: "Geräte-Programme", icon: "cpu")
+                    SectionHeader(title: "Device Programs", icon: "cpu")
                         .padding(.horizontal)
                     
                     LazyVGrid(columns: columns, spacing: 12) {
@@ -62,7 +87,7 @@ struct HomeView: View {
 
             // 2. App Patterns (Software Presets)
             VStack(alignment: .leading, spacing: 12) {
-                SectionHeader(title: "App-Muster", icon: "waveform")
+                SectionHeader(title: "App Patterns", icon: "waveform")
                     .padding(.horizontal)
 
                 LazyVGrid(columns: columns, spacing: 12) {
@@ -85,14 +110,14 @@ struct HomeView: View {
             // 3. Scripts (Custom FunScripts)
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    SectionHeader(title: "Skripte", icon: "scroll")
+                    SectionHeader(title: "Scripts", icon: "scroll")
                     Spacer()
                     FunScriptImportButton()
                 }
                 .padding(.horizontal)
 
                 if deviceManager.customScripts.isEmpty {
-                    Text("Keine Skripte importiert")
+                    Text("No scripts imported")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .frame(maxWidth: .infinity, alignment: .center)
@@ -120,9 +145,9 @@ struct HomeView: View {
 
     private func speedLabel(_ prog: Int) -> String {
         switch prog {
-        case 1: return "Leicht"
-        case 2: return "Mittel"
-        case 3: return "Stark"
+        case 1: return "Low"
+        case 2: return "Medium"
+        case 3: return "High"
         default: return "–"
         }
     }
@@ -141,45 +166,70 @@ struct PlayerCard: View {
     @ObservedObject var deviceManager = DeviceManager.shared
 
     var body: some View {
-        VStack(spacing: 16) {
-            // ── Top row: waveform · info · transport ──────────────────────
-            HStack(spacing: 14) {
-                // Waveform thumbnail
-                MiniWaveformPreview()
-                    .frame(width: 54, height: 54)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14)
-                            .strokeBorder(Color.subtleBorder, lineWidth: 0.5)
-                    )
-
-                // Pattern name + device
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(deviceManager.currentPatternName)
-                        .font(.headline)
-                        .fontWeight(.semibold)
-                        .lineLimit(1)
-
-                    HStack(spacing: 5) {
-                        Circle()
-                            .fill(deviceManager.activeDevice?.isConnected == true
-                                  ? Color.appAccent.opacity(0.85) : Color.gray)
-                            .frame(width: 6, height: 6)
-                        Text(deviceManager.activeDevice?.name ?? "Kein Gerät")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
+        VStack(spacing: 12) {
+            // 1. Sliders at the top
+            if deviceManager.activeDevice?.type == .handy {
+                VStack(spacing: 4) {
+                    HStack {
+                        Text("HUB")
+                            .font(.system(size: 10, weight: .black))
+                            .foregroundColor(.white.opacity(0.6))
+                        Spacer()
+                        Text("\(Int(deviceManager.strokeMin))–\(Int(deviceManager.strokeMax))%")
+                            .font(.system(size: 10, weight: .bold).monospacedDigit())
                     }
+                    RangeSlider(
+                        lowerValue: $deviceManager.strokeMin,
+                        upperValue: $deviceManager.strokeMax,
+                        range: 0...100
+                    ) { editing in
+                        if !editing {
+                            deviceManager.setStrokeRange(min: deviceManager.strokeMin, max: deviceManager.strokeMax)
+                        }
+                    }
+                    .frame(height: 20)
                 }
+            }
+
+            if deviceManager.activeDevice?.type != .lovespouse {
+                VStack(spacing: 4) {
+                    HStack {
+                        Text("INTENSITY")
+                            .font(.system(size: 10, weight: .black))
+                            .foregroundColor(.white.opacity(0.6))
+                        Spacer()
+                        Text("\(Int(deviceManager.currentLevel))%")
+                            .font(.system(size: 10, weight: .bold).monospacedDigit())
+                    }
+                    Slider(value: $deviceManager.currentLevel, in: 0...100) { editing in
+                        if !editing { deviceManager.setLevel(deviceManager.currentLevel) }
+                    }
+                    .tint(.white)
+                }
+            }
+
+            // Spacing instead of Divider for a seamless look
+            if deviceManager.activeDevice?.type != .lovespouse || deviceManager.activeDevice?.type == .handy {
+                Spacer().frame(height: 8)
+            }
+
+            // 2. Control Row: PROGRAM << PLAY >> DEVICENAME
+            HStack(alignment: .center) {
+                // Program Label (Left)
+                Text(deviceManager.currentPatternName)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                    .frame(width: 90, alignment: .leading)
 
                 Spacer()
 
-                // Transport controls
-                HStack(spacing: 18) {
+                // Transport (Center)
+                HStack(spacing: 24) {
                     Button { deviceManager.selectPreviousPattern() } label: {
                         Image(systemName: "backward.fill")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundColor(.primary)
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
                     }
                     .buttonStyle(.plain)
 
@@ -188,111 +238,74 @@ struct PlayerCard: View {
                         else { deviceManager.start() }
                     } label: {
                         ZStack {
-                            // Bloom pulse ring while playing
                             Circle()
-                                .fill(Color.appAccent.opacity(0.18))
-                                .frame(width: 52, height: 52)
-                                .scaleEffect(deviceManager.isPlaying ? 1.0 : 0.75)
-                                .animation(
-                                    deviceManager.isPlaying
-                                        ? .easeInOut(duration: 1.3).repeatForever(autoreverses: true)
-                                        : .easeOut(duration: 0.25),
-                                    value: deviceManager.isPlaying
-                                )
+                                .fill(Color.white.opacity(0.2))
+                                .frame(width: 78, height: 78)
+                                .scaleEffect(deviceManager.isPlaying ? 1.0 : 0.8)
+                                .animation(deviceManager.isPlaying ? .easeInOut(duration: 1.0).repeatForever(autoreverses: true) : .easeOut(duration: 0.2), value: deviceManager.isPlaying)
 
                             Circle()
-                                .fill(LinearGradient.accentGradient)
-                                .frame(width: 42, height: 42)
-                                .shadow(color: Color.glowAccent, radius: 10, x: 0, y: 5)
+                                .fill(Color.white)
+                                .frame(width: 66, height: 66)
+                                .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
 
                             Image(systemName: deviceManager.isPlaying ? "pause.fill" : "play.fill")
-                                .contentTransition(.symbolEffect(.replace))
-                                .font(.system(size: 17, weight: .bold))
-                                .foregroundColor(.white)
+                                .font(.system(size: 26, weight: .bold))
+                                .foregroundColor(Color.appAccent)
                         }
                     }
                     .buttonStyle(.plain)
-                    .opacity(deviceManager.activeDevice?.isConnected == true ? 1 : 0.4)
+                    .opacity(deviceManager.activeDevice?.isConnected == true ? 1 : 0.6)
 
                     Button { deviceManager.selectNextPattern() } label: {
                         Image(systemName: "forward.fill")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundColor(.primary)
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
                     }
                     .buttonStyle(.plain)
                 }
-            }
 
-            if deviceManager.activeDevice?.type != .lovespouse {
-                // ── Intensity slider ─────────────────────────────────────────
-                VStack(spacing: 6) {
-                    HStack {
-                        Text("Intensität")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text("\(Int(deviceManager.currentLevel))%")
-                            .font(.caption.weight(.semibold))
-                            .foregroundColor(.secondary)
-                            .monospacedDigit()
-                    }
+                Spacer()
 
-                    Slider(value: $deviceManager.currentLevel, in: 0...100) { editing in
-                        if !editing { deviceManager.setLevel(deviceManager.currentLevel) }
-                    }
-                    .tint(Color.appAccent)
-                }
-            }
-
-            if deviceManager.activeDevice?.type == .handy {
-                // ── Stroke Range slider ──────────────────────────────────────
-                VStack(spacing: 6) {
-                    HStack {
-                        Text("Hub-Bereich")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text("\(Int(deviceManager.strokeMin))–\(Int(deviceManager.strokeMax))%")
-                            .font(.caption.weight(.semibold))
-                            .foregroundColor(.secondary)
-                            .monospacedDigit()
-                    }
-
-                    RangeSlider(
-                        lowerValue: $deviceManager.strokeMin,
-                        upperValue: $deviceManager.strokeMax,
-                        range: 0...100
-                    ) { editing in
-                        if !editing {
-                            deviceManager.setStrokeRange(
-                                min: deviceManager.strokeMin,
-                                max: deviceManager.strokeMax
-                            )
-                        }
-                    }
-                    .frame(height: 28)
-                }
-                .padding(.top, 4)
+                // Device Label (Right)
+                Text(deviceManager.activeDevice?.name ?? "Kein Gerät")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                    .frame(width: 90, alignment: .trailing)
             }
         }
         .padding(.horizontal, 18)
-        .padding(.top, 14)
-        .padding(.bottom, 16)
+        .padding(.top, 16)
+        .padding(.bottom, 24)
+        .foregroundColor(.white)
         .background(
-            Color.cardBackground
-                .overlay(
-                    // Subtle rose bloom when playing
-                    LinearGradient(
-                        colors: [Color.appAccent.opacity(deviceManager.isPlaying ? 0.07 : 0), .clear],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+            Color.footerBackground // Unified color matching cards
+                .ignoresSafeArea(edges: .bottom)
+                .shadow(color: .black.opacity(0.12), radius: 8, x: 0, y: -4)
+                .overlay(alignment: .top) {
+                    Divider()
+                        .background(Color.white.opacity(0.2))
+                }
         )
-        .overlay(alignment: .bottom) {
-            Divider()
-        }
         .animation(.easeInOut(duration: 0.4), value: deviceManager.isPlaying)
+    }
+}
+
+// Helper for specific corners
+extension View {
+    func cornerRadius(_ radius: CGFloat, corners: UIRectCorner) -> some View {
+        clipShape(RoundedCorner(radius: radius, corners: corners))
+    }
+}
+
+struct RoundedCorner: Shape {
+    var radius: CGFloat = .infinity
+    var corners: UIRectCorner = .allCorners
+
+    func path(in rect: CGRect) -> Path {
+        let path = UIBezierPath(roundedRect: rect, byRoundingCorners: corners, cornerRadii: CGSize(width: radius, height: radius))
+        return Path(path.cgPath)
     }
 }
 
@@ -513,7 +526,7 @@ struct FunScriptImportButton: View {
             HStack(spacing: 6) {
                 Image(systemName: "plus.circle.fill")
                     .font(.title3)
-                Text("Importieren")
+                Text("Import")
                     .font(.subheadline)
                     .fontWeight(.medium)
             }

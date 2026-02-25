@@ -70,6 +70,13 @@ class LoveSpouseManager: NSObject, ObservableObject {
 
     /// Direct program selection. Sends a 500ms burst.
     func selectProgram(_ index: Int) {
+        // Optimization: Only restart the burst if the program changed OR we aren't advertising.
+        // This prevents the "cancel-loop" where high-frequency updates (e.g. 50Hz)
+        // perpetually restart the safety delay, preventing any command from firing.
+        if activeProgram == index && isAdvertising {
+            return
+        }
+
         guard let uuids = commandUUIDs[index] else { return }
         activeProgram = index
         isConnected = true
@@ -81,19 +88,25 @@ class LoveSpouseManager: NSObject, ObservableObject {
     /// Helper for legacy level control (0-100)
     func setLevel(_ level: Double) {
         let clamped = max(0, min(100, level))
+        let targetProgram: Int
+        
         if clamped == 0 {
-            stopAll()
+            targetProgram = 0
         } else if clamped < 34 {
-            selectProgram(1)
+            targetProgram = 1
         } else if clamped < 67 {
-            selectProgram(2)
+            targetProgram = 2
         } else {
-            selectProgram(3)
+            targetProgram = 3
+        }
+        
+        // Only send if the program bucket changed
+        if targetProgram != activeProgram {
+            selectProgram(targetProgram)
         }
     }
 
     func stopAll() {
-        activeProgram = 0
         NSLog("🔵 LoveSpouseManager: Stop")
         selectProgram(0) // Send the explicit Stop command burst
     }
@@ -139,10 +152,19 @@ class LoveSpouseManager: NSObject, ObservableObject {
             self.peripheralManager.startAdvertising([CBAdvertisementDataServiceUUIDsKey: services])
             self.isAdvertising = true
 
-            // Broadcast for 500ms then stop
-            self.burstTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
-                self?.peripheralManager.stopAdvertising()
-                self?.isAdvertising = false
+            // If activeProgram == 0 (Stop command), we broadcast for 2 seconds then shut down to save battery.
+            // If activeProgram > 0 (Active program), we KEEP advertising (continuous) to prevent the toy 
+            // from entering a power-saving sleep state or losing sync during long runs.
+            if self.activeProgram == 0 {
+                self.burstTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+                    self?.peripheralManager.stopAdvertising()
+                    self?.isAdvertising = false
+                    NSLog("🔵 LoveSpouseManager: Stop burst finished, radio off")
+                }
+            } else {
+                // For active programs, we don't set a timer to stop (Keep-Alive).
+                // It remains active until selectProgram is called again or stopAll is called.
+                NSLog("🔵 LoveSpouseManager: Continuous advertising on (Keep-Alive)")
             }
         }
 
@@ -158,6 +180,12 @@ extension LoveSpouseManager: CBPeripheralManagerDelegate {
     func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
         isConnected = (peripheral.state == .poweredOn)
         NSLog("🔵 LoveSpouseManager: BLE State – \(peripheral.state.rawValue)")
+        
+        // Final sync: when the radio turns on, re-send the current state
+        // to catch up with any commands sent during the "power-up" phase.
+        if peripheral.state == .poweredOn {
+            selectProgram(activeProgram)
+        }
     }
 
     func peripheralManagerDidStartAdvertising(_ peripheral: CBPeripheralManager, error: Error?) {

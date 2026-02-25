@@ -8,10 +8,10 @@ import SwiftUI
 extension Color {
     static var appAccent: Color { Color("AppTint") }
     
-    // Warm near-black with a faint mauve tint for dark mode
+    // Deep purple derived from app accent for a unified branded look
     static let cardBackground = Color(uiColor: UIColor { trait in
         trait.userInterfaceStyle == .dark
-            ? UIColor(red: 0.13, green: 0.10, blue: 0.12, alpha: 1)   // warm near-black
+            ? UIColor(red: 0.16, green: 0.10, blue: 0.18, alpha: 1) // Deep branded purple
             : UIColor.white
     })
     
@@ -44,6 +44,9 @@ extension Color {
     
     static let textPrimary = Color.primary
     static let textSecondary = Color.secondary
+    
+    // Unified branded background for the footer player
+    static let footerBackground = Color(red: 0.16, green: 0.10, blue: 0.18)
 }
 
 extension LinearGradient {
