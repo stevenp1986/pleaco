@@ -8,16 +8,18 @@ struct SettingsView: View {
     @State private var deviceToEdit: SavedDevice? = nil
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 28) {
-                devicesSection
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 28) {
+                    devicesSection
 
-                playbackSection
+                    playbackSection
+                }
+                .padding(.top, 32)
+                .padding(.bottom, 60)
             }
-            .padding(.top, 32)
-            .padding(.bottom, 60)
+            .scrollClipDisabled()
         }
-        .scrollClipDisabled()
         .background(Color.surfacePrimary)
         .sheet(isPresented: $showingAddEditor) {
             DeviceEditorSheet(deviceManager: deviceManager, editingDevice: nil)
@@ -170,8 +172,7 @@ struct DeviceCard: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.vertical, 6)
-            .padding(.horizontal, 16)
+            .padding(14)
             .contentShape(Rectangle())
             .onTapGesture {
                 withAnimation(.spring(response: 0.3)) {
@@ -180,21 +181,8 @@ struct DeviceCard: View {
                 }
             }
         }
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(deviceManager.activeDeviceId == device.id ? AnyShapeStyle(LinearGradient.accentGradient) : AnyShapeStyle(Color.cardBackground))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .strokeBorder(deviceManager.activeDeviceId == device.id ? Color.white.opacity(0.12) : Color.subtleBorder, lineWidth: 0.5)
-                )
-        )
+        .appCardStyle(isSelected: deviceManager.activeDeviceId == device.id)
         .padding(.horizontal, 18)
-        .shadow(
-            color: deviceManager.activeDeviceId == device.id ? Color.glowAccent : .black.opacity(0.05),
-            radius: deviceManager.activeDeviceId == device.id ? 10 : 3,
-            x: 0,
-            y: deviceManager.activeDeviceId == device.id ? 5 : 2
-        )
         .animation(.easeInOut(duration: 0.2), value: deviceManager.activeDeviceId)
         .animation(.easeInOut(duration: 0.2), value: device.isConnected)
     }

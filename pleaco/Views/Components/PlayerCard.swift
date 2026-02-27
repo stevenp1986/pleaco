@@ -126,10 +126,22 @@ struct PlayerCard: View {
                             .font(.system(size: 10, weight: .bold).monospacedDigit())
                             .foregroundColor(.white.opacity(0.6))
                     }
-                    Slider(value: Binding(
-                        get: { audioManager.currentTime },
-                        set: { audioManager.seek(to: $0) }
-                    ), in: 0...max(1, audioManager.duration))
+                    Slider(
+                        value: Binding(
+                            get: { audioManager.currentTime },
+                            set: { newValue in
+                                // Temporarily update the UI value
+                                audioManager.currentTime = newValue
+                            }
+                        ),
+                        in: 0...max(1, audioManager.duration)
+                    ) { editing in
+                        if !editing {
+                            audioManager.seek(to: audioManager.currentTime)
+                        } else {
+                            audioManager.pauseTimeObserver()
+                        }
+                    }
                     .tint(.white)
                 }
                 Spacer().frame(height: 4)

@@ -13,19 +13,19 @@ struct AudioView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Header Area
-                    headerSection
-
-                    // Tracks List Area
-                    tracksSection
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(spacing: 24) {
+                        // Tracks List Area
+                        tracksSection
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 24)
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 24)
+                .contentMargins(.bottom, 180, for: .scrollContent)
+                .scrollClipDisabled()
             }
-            .contentMargins(.bottom, 180, for: .scrollContent)
-            .scrollClipDisabled()
+            .background(Color.surfacePrimary)
 
             // Reusing the same Player Card from Home
             PlayerCard()
@@ -60,48 +60,6 @@ struct AudioView: View {
     }
     
     // MARK: - Subviews
-    
-    private var headerSection: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 24)
-                .fill(Color.cardBackground)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24)
-                        .strokeBorder(Color.subtleBorder, lineWidth: 0.5)
-                )
-            
-            // Reactive background bloom
-            if audioManager.isPlaying && deviceManager.activeAudioTrack != nil {
-                RoundedRectangle(cornerRadius: 24)
-                    .fill(
-                        RadialGradient(
-                            colors: [Color.appAccent.opacity(0.1 + (audioManager.currentAmplitude / 200.0)), .clear],
-                            center: .center,
-                            startRadius: 20,
-                            endRadius: 160
-                        )
-                    )
-                    .animation(.interactiveSpring(response: 0.1, dampingFraction: 0.8, blendDuration: 0.3), value: audioManager.currentAmplitude)
-            }
-
-            VStack(spacing: 8) {
-                Image(systemName: "music.note")
-                    .font(.system(size: 52, weight: .light))
-                    .foregroundColor(Color.appAccent.opacity(0.7))
-                    // Pulse the icon slightly based on the audio amplitude
-                    .scaleEffect(audioManager.isPlaying && deviceManager.activeAudioTrack != nil ? 1.0 + (audioManager.currentAmplitude / 300.0) : 1.0)
-                    .animation(.interactiveSpring(response: 0.1, dampingFraction: 0.8), value: audioManager.currentAmplitude)
-                
-                Text("Audio to Vibration")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundColor(.secondary)
-                    .padding(.top, 4)
-            }
-        }
-        .frame(height: 180)
-        .frame(maxWidth: .infinity)
-    }
 
     private var tracksSection: some View {
         VStack(spacing: 16) {
@@ -133,8 +91,11 @@ struct AudioView: View {
                 .padding(.vertical, 40)
                 .appCardStyle()
             } else {
-                ForEach(audioManager.savedTracks) { track in
-                    trackRow(for: track)
+                let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
+                LazyVGrid(columns: columns, spacing: 12) {
+                    ForEach(audioManager.savedTracks) { track in
+                        trackRow(for: track)
+                    }
                 }
             }
         }

@@ -611,13 +611,21 @@ class DeviceManager: ObservableObject {
         selectedLoveSpouseProgram = 0 // Clear hardware program
         activeFunScript = nil
         activeFunScriptId = nil
+        
+        // Load the file structure first so the engine knows duration
+        AudioManager.shared.loadTrack(track)
         activeAudioTrack = track
         
-        if !isPlaying { 
-            start() 
-        } else {
-            AudioManager.shared.play()
+        // Wait 0.1s for AVAudioEngine to setup the nodes and load the file attributes,
+        // then explicitly trigger playback
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            if !self.isPlaying { 
+                self.start() 
+            } else {
+                AudioManager.shared.play()
+            }
         }
+            
         stopWaveTimer()
     }
 

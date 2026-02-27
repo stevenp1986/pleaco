@@ -201,8 +201,6 @@ class AudioManager: ObservableObject {
         let nextTrack = savedTracks[nextIndex]
         
         DeviceManager.shared.applyAudioTrack(nextTrack)
-        loadTrack(nextTrack)
-        if !DeviceManager.shared.isPlaying { DeviceManager.shared.start() }
     }
 
     func playPrevious() {
@@ -214,8 +212,6 @@ class AudioManager: ObservableObject {
         let prevTrack = savedTracks[prevIndex]
         
         DeviceManager.shared.applyAudioTrack(prevTrack)
-        loadTrack(prevTrack)
-        if !DeviceManager.shared.isPlaying { DeviceManager.shared.start() }
     }
 
     func pause() {
@@ -331,6 +327,10 @@ class AudioManager: ObservableObject {
     private func stopTimeObserver() {
         timeObserverTimer?.invalidate()
         timeObserverTimer = nil
+    }
+    
+    func pauseTimeObserver() {
+        timeObserverTimer?.invalidate()
     }
 
     func seek(to time: TimeInterval) {
