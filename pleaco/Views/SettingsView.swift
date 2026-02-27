@@ -102,24 +102,17 @@ struct SettingsSectionCard<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SectionHeader(title: title, icon: icon)
-                .padding(.horizontal, 18)
+        VStack(alignment: .leading, spacing: 12) {
+            Label(title, systemImage: icon)
+                .font(.headline.weight(.semibold))
+                .foregroundColor(Color.appAccent.opacity(0.9))
+                .padding(.horizontal, 4)
 
-            VStack(spacing: 0) {
-                content
-                    .padding(20)
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(Color.cardBackground)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20)
-                            .strokeBorder(Color.subtleBorder, lineWidth: 0.5)
-                    )
-            )
-            .padding(.horizontal, 18)
+            content
+                .padding(16)
+                .appCardStyle()
         }
+        .padding(.horizontal, 18)
     }
 }
 

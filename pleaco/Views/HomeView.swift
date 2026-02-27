@@ -153,19 +153,6 @@ struct RoundedCorner: Shape {
     }
 }
 
-// MARK: – Section Header
-
-struct SectionHeader: View {
-    let title: String
-    let icon: String
-
-    var body: some View {
-        Label(title, systemImage: icon)
-            .font(.headline.weight(.semibold))
-            .foregroundColor(Color.appAccent.opacity(0.9))
-    }
-}
-
 // MARK: – Playing Indicator (pulsing petals)
 
 struct PlayingIndicator: View {
@@ -235,29 +222,7 @@ struct LiveControlCard: View {
             }
             .frame(maxWidth: .infinity)
             .frame(height: 140)
-            .background(
-                RoundedRectangle(cornerRadius: 24)
-                    .fill(isSelected ? AnyShapeStyle(LinearGradient.accentGradient) : AnyShapeStyle(Color.cardBackground))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 24)
-                    .strokeBorder(
-                        isSelected ? Color.white.opacity(0.15) : Color.subtleBorder,
-                        lineWidth: 0.5
-                    )
-            )
-            .overlay(
-                // Shimmer highlight at top-left when selected
-                LinearGradient.cardGradient
-                    .clipShape(RoundedRectangle(cornerRadius: 24))
-                    .opacity(isSelected ? 1 : 0)
-            )
-            .shadow(
-                color: isSelected ? Color.glowAccent : .black.opacity(0.07),
-                radius: isSelected ? 20 : 5,
-                x: 0,
-                y: isSelected ? 10 : 3
-            )
+            .appCardStyle(isSelected: isSelected)
             .foregroundColor(isSelected ? .white : .primary)
         }
         .buttonStyle(ScaleButtonStyle(scale: 0.95))
@@ -318,28 +283,7 @@ struct PatternCard: View {
             .padding(12)
             .frame(maxWidth: .infinity)
             .frame(height: 110)
-            .background(
-                RoundedRectangle(cornerRadius: 22)
-                    .fill(isSelected ? AnyShapeStyle(LinearGradient.accentGradient) : AnyShapeStyle(Color.cardBackground))
-            )
-            .overlay(
-                LinearGradient.cardGradient
-                    .clipShape(RoundedRectangle(cornerRadius: 22))
-                    .opacity(isSelected ? 1 : 0)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 22)
-                    .strokeBorder(
-                        isSelected ? Color.white.opacity(0.12) : Color.subtleBorder,
-                        lineWidth: 0.5
-                    )
-            )
-            .shadow(
-                color: isSelected ? Color.glowAccent : .black.opacity(0.05),
-                radius: isSelected ? 14 : 3,
-                x: 0,
-                y: isSelected ? 7 : 2
-            )
+            .appCardStyle(isSelected: isSelected)
             .foregroundColor(isSelected ? .white : .primary)
         }
         .buttonStyle(ScaleButtonStyle())

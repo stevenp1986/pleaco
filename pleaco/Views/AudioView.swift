@@ -106,9 +106,7 @@ struct AudioView: View {
     private var tracksSection: some View {
         VStack(spacing: 16) {
             HStack {
-                Text("Library")
-                    .font(.title2.weight(.bold))
-                    .foregroundColor(.primary)
+                SectionHeader(title: "Library", icon: "music.note.list")
                 Spacer()
                 Button {
                     showingAudioPicker = true
@@ -133,7 +131,7 @@ struct AudioView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 40)
-                .background(RoundedRectangle(cornerRadius: 16).fill(Color.cardBackground))
+                .appCardStyle()
             } else {
                 ForEach(audioManager.savedTracks) { track in
                     trackRow(for: track)
@@ -169,14 +167,7 @@ struct AudioView: View {
                 Spacer()
             }
             .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(isSelected ? AnyShapeStyle(Color.appAccent.opacity(0.1)) : AnyShapeStyle(Color.cardBackground))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .strokeBorder(isSelected ? Color.appAccent.opacity(0.5) : Color.subtleBorder, lineWidth: 1)
-            )
+            .appCardStyle(isSelected: isSelected)
         }
         .buttonStyle(.plain)
         .contextMenu {

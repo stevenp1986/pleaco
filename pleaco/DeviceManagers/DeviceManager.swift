@@ -448,7 +448,12 @@ class DeviceManager: ObservableObject {
 
     func start() {
         guard !isPlaying else { return }
-        guard activeDevice != nil else { return }
+
+        // We want to allow Audio to play even if no device is connected.
+        // If there's no device and no audio track, then there's nothing to do.
+        if activeDevice == nil && activeAudioTrack == nil {
+            return
+        }
 
         isPlaying = true
         
@@ -465,7 +470,9 @@ class DeviceManager: ObservableObject {
         }
         #endif
         
-        ensureHardwareStarted()
+        if activeDevice != nil {
+            ensureHardwareStarted()
+        }
         
         if activeAudioTrack != nil {
             // Audio mode: play the audio track concurrently
@@ -677,6 +684,11 @@ class DeviceManager: ObservableObject {
     }
 
     func selectNextPattern() {
+        if activeAudioTrack != nil {
+            AudioManager.shared.playNext()
+            return
+        }
+        
         let presets = PatternEngine.navigablePresets
         let isLS = activeDevice?.type == .lovespouse
         let isOSSM = activeDevice?.type == .ossm
@@ -732,6 +744,11 @@ class DeviceManager: ObservableObject {
     }
 
     func selectPreviousPattern() {
+        if activeAudioTrack != nil {
+            AudioManager.shared.playPrevious()
+            return
+        }
+        
         let presets = PatternEngine.navigablePresets
         let isLS = activeDevice?.type == .lovespouse
         let isOSSM = activeDevice?.type == .ossm

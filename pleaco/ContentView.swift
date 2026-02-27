@@ -32,6 +32,13 @@ struct ContentView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.3), value: selectedTab)
+            .onChange(of: selectedTab) { newValue in
+                DeviceManager.shared.stop()
+                if newValue != 1 {
+                    // Revert PlayerCard to default pattern mode when leaving AudioView
+                    DeviceManager.shared.activeAudioTrack = nil
+                }
+            }
         }
         .background(Color.surfacePrimary.ignoresSafeArea())
         .tint(Color.appAccent)

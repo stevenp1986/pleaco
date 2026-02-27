@@ -156,13 +156,24 @@ class AudioManager: ObservableObject {
         guard let file = audioFile else { return }
 
         do {
+            // Block external audio (like Spotify) while we play our own music
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default, options: [])
+            try session.setActive(true)
+            
             // Stop the node first to clear any previously scheduled buffers
             playerNode.stop()
             
             // Re-schedule the file from the beginning
             playerNode.scheduleFile(file, at: nil) {
                 DispatchQueue.main.async {
-                    self.stop()
+                    // Check if track reached the end naturally (not a manual pause/stop)
+                    // If remaining duration is very small, we finished naturally.
+                    if self.currentTime >= self.duration - 0.2 {
+                        self.playNext()
+                    } else {
+                        self.stop()
+                    }
                 }
             }
             
@@ -178,6 +189,34 @@ class AudioManager: ObservableObject {
             print("Could not start audio engine: \(error)")
         }
     }
+    
+    // MARK: - Track Skipping Navigation
+    
+    func playNext() {
+        guard !savedTracks.isEmpty else { return }
+        let currentFileName = audioFile?.url.lastPathComponent
+        guard let currentIndex = savedTracks.firstIndex(where: { $0.fileName == currentFileName }) else { return }
+        
+        let nextIndex = (currentIndex + 1) % savedTracks.count
+        let nextTrack = savedTracks[nextIndex]
+        
+        DeviceManager.shared.applyAudioTrack(nextTrack)
+        loadTrack(nextTrack)
+        if !DeviceManager.shared.isPlaying { DeviceManager.shared.start() }
+    }
+
+    func playPrevious() {
+        guard !savedTracks.isEmpty else { return }
+        let currentFileName = audioFile?.url.lastPathComponent
+        guard let currentIndex = savedTracks.firstIndex(where: { $0.fileName == currentFileName }) else { return }
+        
+        let prevIndex = (currentIndex - 1 >= 0) ? (currentIndex - 1) : (savedTracks.count - 1)
+        let prevTrack = savedTracks[prevIndex]
+        
+        DeviceManager.shared.applyAudioTrack(prevTrack)
+        loadTrack(prevTrack)
+        if !DeviceManager.shared.isPlaying { DeviceManager.shared.start() }
+    }
 
     func pause() {
         playerNode.pause()
@@ -185,6 +224,12 @@ class AudioManager: ObservableObject {
         isPlaying = false
         DeviceManager.shared.setLevel(0.0) // Stop vibrations
         stopTimeObserver()
+        
+        // Restore background audio mixing
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch { print("AudioSession error") }
     }
 
     func stop() {
@@ -195,6 +240,12 @@ class AudioManager: ObservableObject {
         currentTime = 0
         DeviceManager.shared.setLevel(0.0)
         stopTimeObserver()
+        
+        // Restore background audio mixing
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch { print("AudioSession error") }
     }
 
     // MARK: - Private Audio Analysis
