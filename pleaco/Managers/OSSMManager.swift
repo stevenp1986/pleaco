@@ -40,6 +40,12 @@ class OSSMManager: NSObject, ObservableObject {
     private var connectionCompletion: ((Bool) -> Void)?
     private var lastState: String = ""
     private var lastRequestedDescriptionIndex: Int?
+    
+    // Throttling state to prevent BLE flood
+    private var lastSentSpeed: Int?
+    private var lastSentDepth: Int?
+    private var lastSentStroke: Int?
+    private var lastSentSensation: Int?
 
     private override init() {
         super.init()
@@ -82,21 +88,35 @@ class OSSMManager: NSObject, ObservableObject {
     func stop() {
         // go:idle handles motor stop and state transition
         sendCommand("go:idle")
+        deviceState = "idle"
+        lastSentSpeed = 0
     }
 
     func setLevel(_ level: Double) {
         let speed = Int(max(0, min(100, level)))
-        sendCommand("set:speed:\(speed)")
+        
+        if speed != lastSentSpeed {
+            sendCommand("set:speed:\(speed)")
+            lastSentSpeed = speed
+        }
         
         // Only trigger strokeEngine mode if we aren't already there and speed > 0
         if speed > 0 && deviceState != "strokeEngine" {
             sendCommand("go:strokeEngine")
+            deviceState = "strokeEngine"
+        } else if speed == 0 && deviceState != "idle" {
+            sendCommand("go:idle")
+            deviceState = "idle"
         }
     }
 
     func setDepth(_ depth: Double, syncStroke: Bool = true) {
         let val = Int(max(0, min(100, depth)))
-        sendCommand("set:depth:\(val)")
+        
+        if val != lastSentDepth {
+            sendCommand("set:depth:\(val)")
+            lastSentDepth = val
+        }
         
         if strokerMode && syncStroke {
             // derivedStroke = Math.round((value - 50) * 2)
@@ -107,7 +127,11 @@ class OSSMManager: NSObject, ObservableObject {
 
     func setStroke(_ stroke: Double, syncDepth: Bool = true) {
         let val = Int(max(0, min(100, stroke)))
-        sendCommand("set:stroke:\(val)")
+        
+        if val != lastSentStroke {
+            sendCommand("set:stroke:\(val)")
+            lastSentStroke = val
+        }
         
         if strokerMode && syncDepth {
             // derivedDepth = Math.round((value / 2) + 50)
@@ -118,12 +142,17 @@ class OSSMManager: NSObject, ObservableObject {
 
     func setSensation(_ sensation: Double) {
         let val = Int(max(0, min(100, sensation)))
-        sendCommand("set:sensation:\(val)")
+        
+        if val != lastSentSensation {
+            sendCommand("set:sensation:\(val)")
+            lastSentSensation = val
+        }
     }
 
     func setPattern(_ patternIndex: Int) {
         let val = max(0, min(6, patternIndex))
         sendCommand("set:pattern:\(val)")
+        deviceState = "pattern"
         
         // Reset sensation to 50 when pattern changes (per OSSM.svelte logic)
         setSensation(50)
@@ -168,6 +197,10 @@ class OSSMManager: NSObject, ObservableObject {
         isConnected = false
         isReady = false
         deviceState = "idle"
+        lastSentSpeed = nil
+        lastSentDepth = nil
+        lastSentStroke = nil
+        lastSentSensation = nil
         centralManager.stopScan()
     }
 }
@@ -235,9 +268,11 @@ extension OSSMManager: CBPeripheralDelegate {
                 connectionCompletion?(true)
                 connectionCompletion = nil
             } else if characteristic.uuid == stateCharacteristicUUID {
-                // Subscribe to state updates
-                peripheral.setNotifyValue(true, for: characteristic)
-                NSLog("🔵 OSSMManager: Subscribed to state updates")
+                // We intentionally DO NOT subscribe to state updates (setNotifyValue) 
+                // because the OSSM-Possum firmware (nimbleLoop) currently spams notifications 
+                // every few milliseconds, causing the ESP32 to crash or disconnect.
+                // peripheral.setNotifyValue(true, for: characteristic)
+                NSLog("🔵 OSSMManager: Skipped subscribing to state updates to prevent device flood")
             } else if characteristic.uuid == patternCharacteristicUUID {
                 // Read pattern list once
                 peripheral.readValue(for: characteristic)
