@@ -27,6 +27,8 @@ class AudioManager: ObservableObject {
     private var audioFile: AVAudioFile?
     
     private var seekOffset: TimeInterval = 0
+    private var ignoreCompletion = false
+    private var isSeeking = false
 
     private let analysisQueue = DispatchQueue(label: "com.pleaco.audioAnalysis")
     private var theRms: Float = 0.0
@@ -132,6 +134,8 @@ class AudioManager: ObservableObject {
 
     private func loadAudioFile(url: URL) {
         stop()
+        seekOffset = 0
+        currentTime = 0
 
         do {
             audioFile = try AVAudioFile(forReading: url)
@@ -156,35 +160,45 @@ class AudioManager: ObservableObject {
         guard let file = audioFile else { return }
 
         do {
-            // Block external audio (like Spotify) while we play our own music
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .default, options: [])
             try session.setActive(true)
             
-            // Stop the node first to clear any previously scheduled buffers
-            playerNode.stop()
+            if !engine.isRunning {
+                try engine.start()
+            }
             
-            // Re-schedule the file from the beginning
-            playerNode.scheduleFile(file, at: nil) {
-                DispatchQueue.main.async {
-                    // Check if track reached the end naturally (not a manual pause/stop)
-                    // If remaining duration is very small, we finished naturally.
-                    if self.currentTime >= self.duration - 0.2 {
-                        self.playNext()
-                    } else {
-                        self.stop()
+            // If we are not already scheduled or playing, schedule from currentTime
+            // This ensures we start from 0 on a new track (since stop() sets currentTime = 0)
+            // or resume correctly if currentTime was updated by a seek.
+            if !isPlaying {
+                playerNode.stop() // Clear internal state
+                
+                let sampleRate = file.fileFormat.sampleRate
+                let targetFrame = AVAudioFramePosition(currentTime * sampleRate)
+                let totalFrames = file.length
+                
+                let startFrame = max(0, min(targetFrame, totalFrames))
+                let remainingFrames = AVAudioFrameCount(totalFrames - startFrame)
+                
+                if remainingFrames > 0 {
+                    playerNode.scheduleSegment(file, startingFrame: startFrame, frameCount: remainingFrames, at: nil) { [weak self] in
+                        guard let self = self, !self.ignoreCompletion else { return }
+                        DispatchQueue.main.async {
+                            if self.currentTime >= self.duration - 0.2 {
+                                self.playNext()
+                            } else {
+                                self.stop()
+                            }
+                        }
                     }
                 }
             }
             
-            try engine.start()
             playerNode.play()
-            
             isPlaying = true
-            DeviceManager.shared.start() // Ensure haptics/toys are ready to receive commands
-            
+            DeviceManager.shared.start()
             startTimeObserver()
-            print("Audio Mixer Tap started...")
         } catch {
             print("Could not start audio engine: \(error)")
         }
@@ -234,6 +248,7 @@ class AudioManager: ObservableObject {
         isPlaying = false
         currentAmplitude = 0.0
         currentTime = 0
+        seekOffset = 0
         DeviceManager.shared.setLevel(0.0)
         stopTimeObserver()
         
@@ -294,7 +309,7 @@ class AudioManager: ObservableObject {
         var intensity = Double(rms * boostFactor * sensitivityMultiplier)
         
         // Cap it
-        intensity = min(100.0, max(0.0, intensity))
+        intensity = min(DeviceManager.shared.audioIntensity, max(0.0, intensity))
         
         // A little threshold smoothing - don't vibrate for tiny background hiss
         if intensity < 5.0 {
@@ -336,6 +351,10 @@ class AudioManager: ObservableObject {
     func seek(to time: TimeInterval) {
         guard let file = audioFile else { return }
         
+        isSeeking = true
+        ignoreCompletion = true
+        playerNode.stop()
+        
         let sampleRate = file.fileFormat.sampleRate
         let targetFrame = AVAudioFramePosition(time * sampleRate)
         let totalFrames = file.length
@@ -344,10 +363,9 @@ class AudioManager: ObservableObject {
         let validFrame = max(0, min(targetFrame, totalFrames))
         let remainingFrames = AVAudioFrameCount(totalFrames - validFrame)
         
-        playerNode.stop()
-        
         if remainingFrames > 0 {
-            playerNode.scheduleSegment(file, startingFrame: validFrame, frameCount: remainingFrames, at: nil) {
+            playerNode.scheduleSegment(file, startingFrame: validFrame, frameCount: remainingFrames, at: nil) { [weak self] in
+                guard let self = self, !self.ignoreCompletion else { return }
                 DispatchQueue.main.async {
                     self.stop()
                 }
@@ -356,9 +374,13 @@ class AudioManager: ObservableObject {
         
         seekOffset = Double(validFrame) / sampleRate
         currentTime = seekOffset
+        ignoreCompletion = false
         
         if isPlaying {
             playerNode.play()
+            startTimeObserver()
         }
+        
+        isSeeking = false
     }
 }

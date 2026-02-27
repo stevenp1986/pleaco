@@ -67,6 +67,14 @@ enum DeviceWavePreset: String, CaseIterable, Identifiable, Codable {
     var shortName: String { rawValue }
 }
 
+enum ProgramType {
+    case preset
+    case script
+    case audio
+    case manual
+    case hardware
+}
+
 class SavedDevice: ObservableObject, Identifiable, Codable, Hashable {
     let id: UUID
     @Published var name: String
@@ -132,15 +140,17 @@ class DeviceManager: ObservableObject {
         didSet { UserDefaults.standard.set(strokeMax, forKey: "strokeMax") }
     }
 
-    
-    @Published var defaultIntensity: Double = 50 {
+    @Published var masterIntensity: Double = 50 {
+        didSet { UserDefaults.standard.set(masterIntensity, forKey: "masterIntensity") }
+    }
+
+    @Published var audioIntensity: Double = 25 {
         didSet {
-            UserDefaults.standard.set(defaultIntensity, forKey: "defaultIntensity")
-            if !isPlaying {
-                currentLevel = defaultIntensity
-            }
+            UserDefaults.standard.set(audioIntensity, forKey: "audioIntensity")
         }
     }
+    
+    @Published var isManualControlActive: Bool = false
     
     @Published var ossmSensation: Double = 50 {
         didSet {
@@ -201,6 +211,9 @@ class DeviceManager: ObservableObject {
     }
 
     var currentPatternName: String {
+        if isManualControlActive {
+            return "Manual Intensity"
+        }
         if let track = activeAudioTrack {
             return track.name
         }
@@ -230,28 +243,6 @@ class DeviceManager: ObservableObject {
     private var deviceSubscriptions: [UUID: AnyCancellable] = [:]
 
     private init() {
-        self.defaultIntensity = UserDefaults.standard.double(forKey: "defaultIntensity")
-        if self.defaultIntensity == 0 { self.defaultIntensity = 50 } 
-        self.currentLevel = self.defaultIntensity
-        
-        self.strokeMin = UserDefaults.standard.double(forKey: "strokeMin")
-        self.strokeMax = UserDefaults.standard.object(forKey: "strokeMax") as? Double ?? 100
-        self.ossmSensation = UserDefaults.standard.double(forKey: "ossmSensation")
-        if self.ossmSensation == 0 { self.ossmSensation = 50 }
-        
-        self.ossmStrokerMode = UserDefaults.standard.bool(forKey: "ossmStrokerMode")
-        ossmManager.strokerMode = self.ossmStrokerMode
-        
-        // OSSM Limiters
-        self.ossmSpeedLimitMax = UserDefaults.standard.object(forKey: "ossmSpeedLimitMax") as? Double ?? 100
-        self.ossmSpeedLimitMin = UserDefaults.standard.double(forKey: "ossmSpeedLimitMin")
-        self.ossmStrokeLimitMax = UserDefaults.standard.object(forKey: "ossmStrokeLimitMax") as? Double ?? 100
-        self.ossmStrokeLimitMin = UserDefaults.standard.double(forKey: "ossmStrokeLimitMin")
-        self.ossmDepthLimitMax = UserDefaults.standard.object(forKey: "ossmDepthLimitMax") as? Double ?? 100
-        self.ossmDepthLimitMin = UserDefaults.standard.double(forKey: "ossmDepthLimitMin")
-        self.ossmSensationLimitMax = UserDefaults.standard.object(forKey: "ossmSensationLimitMax") as? Double ?? 100
-        self.ossmSensationLimitMin = UserDefaults.standard.double(forKey: "ossmSensationLimitMin")
-        
         loadDevices()
         restoreActiveDevice()
         setupConnectionMonitoring()
@@ -459,7 +450,7 @@ class DeviceManager: ObservableObject {
         
         // Use default intensity if we are at 0
         if currentLevel == 0 {
-            currentLevel = defaultIntensity
+            currentLevel = 50
         }
 
         waveTime = 0
@@ -477,6 +468,8 @@ class DeviceManager: ObservableObject {
         if activeAudioTrack != nil {
             // Audio mode: play the audio track concurrently
             AudioManager.shared.play()
+        } else if isManualControlActive {
+            // Manual mode: just ensure idle timer is disabled, no timer needed
         } else {
             startWaveTimer()
         }
@@ -509,6 +502,7 @@ class DeviceManager: ObservableObject {
 
     func stop() {
         stopWaveTimer()
+        isManualControlActive = false
         isPlaying = false
         
         if activeAudioTrack != nil {
@@ -534,11 +528,7 @@ class DeviceManager: ObservableObject {
 
     func setLevel(_ level: Double) {
         currentLevel = level
-        
-        // Intensity control via slider
-        if isPlaying {
-            sendLevel(level)
-        }
+        sendLevel(level)
     }
 
     func setStrokeRange(min: Double, max: Double) {
@@ -554,46 +544,40 @@ class DeviceManager: ObservableObject {
         }
 
         handyManager.setSlideRange(min: strokeMin, max: strokeMax)
-        
+
         if activeDevice?.type == .ossm {
             ossmManager.setDepth(strokeMin)
             ossmManager.setStroke(strokeMax)
         }
     }
-
     func applyPreset(_ preset: DeviceWavePreset) {
-        selectedLoveSpouseProgram = 0 // Clear hardware program
-        activeFunScript = nil
-        activeFunScriptId = nil
-        if activeAudioTrack != nil {
-            AudioManager.shared.pause()
-            activeAudioTrack = nil
-        }
+        clearAllPrograms(except: .preset)
         selectedPreset = preset
 
-        if !isPlaying {
-            start()
+        // Wait 0.1s for hardware to settle after clearAllPrograms (e.g. LoveSpouse selectProgram(0))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            if !self.isPlaying {
+                self.start()
+            } else {
+                self.ensureHardwareStarted()
+            }
+
+            // Restart wave timer with new preset
+            self.stopWaveTimer()
+            self.waveTime = 0
+            self.startWaveTimer()
         }
-        
+
         if activeDevice?.type == .ossm {
             ossmManager.setSensation(ossmSensation)
         }
-
-        // Restart wave timer with new preset
-        stopWaveTimer()
-        waveTime = 0
-        startWaveTimer()
     }
 
 
     // MARK: - FunScript
 
     func applyFunScript(_ script: FunScriptData) {
-        selectedLoveSpouseProgram = 0 // Clear hardware program
-        if activeAudioTrack != nil {
-            AudioManager.shared.pause()
-            activeAudioTrack = nil
-        }
+        clearAllPrograms(except: .script)
         activeFunScript = FunScriptData(
             actions: script.actions.sorted { $0.at < $1.at },
             inverted: script.inverted,
@@ -601,47 +585,51 @@ class DeviceManager: ObservableObject {
         )
         activeFunScriptId = nil
         funScriptPositionMs = 0
-        if !isPlaying { start() }
-        stopWaveTimer()
-        waveTime = 0
-        startWaveTimer()
+
+        // Wait 0.1s for hardware to settle
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            if !self.isPlaying { self.start() } else { self.ensureHardwareStarted() }
+            self.stopWaveTimer()
+            self.waveTime = 0
+            self.startWaveTimer()
+        }
     }
 
     func applyAudioTrack(_ track: SavedAudioTrack) {
-        selectedLoveSpouseProgram = 0 // Clear hardware program
-        activeFunScript = nil
-        activeFunScriptId = nil
-        
-        // Load the file structure first so the engine knows duration
-        AudioManager.shared.loadTrack(track)
+        clearAllPrograms(except: .audio)
+
         activeAudioTrack = track
-        
-        // Wait 0.1s for AVAudioEngine to setup the nodes and load the file attributes,
-        // then explicitly trigger playback
+        isManualControlActive = false
+
+        // Use a clean state for the new track
+        AudioManager.shared.loadTrack(track)
+
+        // Wait 0.1s for AVAudioEngine nodes to settle after re-setup
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            if !self.isPlaying { 
-                self.start() 
+            if !self.isPlaying {
+                self.start()
             } else {
                 AudioManager.shared.play()
+                self.ensureHardwareStarted()
             }
         }
-            
+
         stopWaveTimer()
     }
 
     func applyNamedFunScript(_ namedScript: NamedFunScript) {
-        selectedLoveSpouseProgram = 0 // Clear hardware program
-        if activeAudioTrack != nil {
-            AudioManager.shared.pause()
-            activeAudioTrack = nil
-        }
+        clearAllPrograms(except: .script)
         activeFunScript = namedScript.data
         activeFunScriptId = namedScript.id
         funScriptPositionMs = 0
-        if !isPlaying { start() }
-        stopWaveTimer()
-        waveTime = 0
-        startWaveTimer()
+
+        // Wait 0.1s for hardware to settle
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            if !self.isPlaying { self.start() } else { self.ensureHardwareStarted() }
+            self.stopWaveTimer()
+            self.waveTime = 0
+            self.startWaveTimer()
+        }
     }
 
     func addCustomScript(_ script: NamedFunScript) {
@@ -670,9 +658,10 @@ class DeviceManager: ObservableObject {
 
     func selectLoveSpouseProgram(_ index: Int) {
         guard activeDevice?.type == .lovespouse || activeDevice?.type == .ossm else { return }
-        
+
+        clearAllPrograms(except: .hardware)
         selectedLoveSpouseProgram = index
-        
+
         if index > 0 {
             isPlaying = true
             if activeDevice?.type == .lovespouse {
@@ -696,11 +685,11 @@ class DeviceManager: ObservableObject {
             AudioManager.shared.playNext()
             return
         }
-        
+
         let presets = PatternEngine.navigablePresets
         let isLS = activeDevice?.type == .lovespouse
         let isOSSM = activeDevice?.type == .ossm
-        
+
         // 1. Current state: LoveSpouse Program
         if (isLS || isOSSM) && selectedLoveSpouseProgram > 0 {
             if selectedLoveSpouseProgram < 9 {
@@ -712,7 +701,7 @@ class DeviceManager: ObservableObject {
             }
             return
         }
-        
+
         // 2. Current state: Software Preset
         if activeFunScriptId == nil {
             if let idx = presets.firstIndex(of: selectedPreset) {
@@ -731,7 +720,7 @@ class DeviceManager: ObservableObject {
                 return
             }
         }
-        
+
         // 3. Current state: Custom Script
         if let currentId = activeFunScriptId, let idx = customScripts.firstIndex(where: { $0.id == currentId }) {
             if idx < customScripts.count - 1 {
@@ -745,7 +734,7 @@ class DeviceManager: ObservableObject {
             }
             return
         }
-        
+
         // Fallback
         if isLS || isOSSM { selectLoveSpouseProgram(1) }
         else { applyPreset(presets.first ?? .sine75) }
@@ -756,11 +745,11 @@ class DeviceManager: ObservableObject {
             AudioManager.shared.playPrevious()
             return
         }
-        
+
         let presets = PatternEngine.navigablePresets
         let isLS = activeDevice?.type == .lovespouse
         let isOSSM = activeDevice?.type == .ossm
-        
+
         // 1. Current state: LoveSpouse Program
         if (isLS || isOSSM) && selectedLoveSpouseProgram > 0 {
             if selectedLoveSpouseProgram > 1 {
@@ -776,7 +765,7 @@ class DeviceManager: ObservableObject {
             }
             return
         }
-        
+
         // 2. Current state: Software Preset
         if activeFunScriptId == nil {
             if let idx = presets.firstIndex(of: selectedPreset) {
@@ -795,7 +784,7 @@ class DeviceManager: ObservableObject {
                 return
             }
         }
-        
+
         // 3. Current state: Custom Script
         if let currentId = activeFunScriptId, let idx = customScripts.firstIndex(where: { $0.id == currentId }) {
             if idx > 0 {
@@ -806,7 +795,7 @@ class DeviceManager: ObservableObject {
             }
             return
         }
-        
+
         // Fallback
         if isLS || isOSSM { selectLoveSpouseProgram(9) }
         else { applyPreset(presets.last ?? .sine75) }
@@ -837,20 +826,21 @@ class DeviceManager: ObservableObject {
                 }
                 self.waveTime = self.funScriptPositionMs / 1000.0
                 let pos = PatternEngine.interpolatedPos(script: script, atMs: self.funScriptPositionMs)
-                var speed = pos * self.currentLevel
-                
+                var speed = pos * self.masterIntensity
+
                 // For internal haptics, ensure we never hit absolute 0 during a pattern to maintain motor spin
                 if self.activeDevice?.type == .internal && speed < 5.0 {
                     speed = 5.0
                 }
-                
+
+                self.currentLevel = speed
                 self.sendLevel(speed)
             }
             return
         }
 
         var interval = timerInterval(for: selectedPreset)
-        
+
         // Cloud/BLE devices cannot handle high-frequency updates
         if activeDevice?.type == .handy || activeDevice?.type == .oh || activeDevice?.type == .ossm {
             interval = max(0.1, interval)
@@ -865,18 +855,20 @@ class DeviceManager: ObservableObject {
             }
 
             let normalizedValue = self.calculateWaveValue(time: self.waveTime)
-            var speed = self.currentLevel * normalizedValue
-            
+            var speed = self.masterIntensity * normalizedValue
+
             // For internal haptics, ensure we never hit absolute 0 during a pattern to maintain motor spin
             if self.activeDevice?.type == .internal && speed < 5.0 {
                 speed = 5.0
             }
 
+            self.currentLevel = speed
             self.sendLevel(speed)
             self.waveTime += interval
         }
 
         // Send initial level
+        currentLevel = masterIntensity
         sendLevel(currentLevel)
     }
 
@@ -885,7 +877,7 @@ class DeviceManager: ObservableObject {
         waveTimer = nil
     }
 
-    private func sendLevel(_ level: Double) {
+    func sendLevel(_ level: Double) {
         guard let device = activeDevice, device.isConnected else { return }
 
         // Safety: If a LoveSpouse hardware program is active, ignore software speed updates
@@ -907,6 +899,46 @@ class DeviceManager: ObservableObject {
             ossmManager.setLevel(level)
         case .internal:
             hapticManager.updateIntensity(level)
+        }
+    }
+
+    func applyManualControl() {
+        if !isManualControlActive {
+            clearAllPrograms(except: .manual)
+            isManualControlActive = true
+            isPlaying = true
+            stopWaveTimer()
+
+            #if os(iOS)
+            DispatchQueue.main.async {
+                UIApplication.shared.isIdleTimerDisabled = true
+            }
+            #endif
+
+            ensureHardwareStarted()
+            objectWillChange.send()
+        }
+    }
+
+    private func clearAllPrograms(except type: ProgramType) {
+        if type != .preset {
+            // Preset is the "default" so we don't strictly clear it but it's ignored if others stay active
+        }
+        if type != .script {
+            activeFunScript = nil
+            activeFunScriptId = nil
+        }
+        if type != .audio {
+            if activeAudioTrack != nil {
+                AudioManager.shared.pause()
+                activeAudioTrack = nil
+            }
+        }
+        if type != .manual {
+            isManualControlActive = false
+        }
+        if type != .hardware {
+            selectedLoveSpouseProgram = 0
         }
     }
 
@@ -1038,9 +1070,7 @@ class DeviceManager: ObservableObject {
     // MARK: - Persistence
 
     private func restoreActiveDevice() {
-        let savedIntensity = UserDefaults.standard.double(forKey: "defaultIntensity")
-        self.defaultIntensity = savedIntensity > 0 ? savedIntensity : 50
-        self.currentLevel = self.defaultIntensity
+        self.currentLevel = 0
 
         self.selectedLoveSpouseProgram = UserDefaults.standard.integer(forKey: "selectedLoveSpouseProgram")
 
@@ -1061,7 +1091,7 @@ class DeviceManager: ObservableObject {
            let uuid = UUID(uuidString: idString),
            let device = devices.first(where: { $0.id == uuid }) {
             activeDeviceId = device.id
-            
+
             // Re-configure managers
             switch device.type {
             case .handy, .oh:
@@ -1072,7 +1102,7 @@ class DeviceManager: ObservableObject {
             case .lovespouse, .ossm, .internal:
                 break
             }
-            
+
             // Handshake AFTER configuration
             checkDeviceConnectionAsync(device)
         } else {
@@ -1093,7 +1123,7 @@ class DeviceManager: ObservableObject {
            let savedDevices = try? JSONDecoder().decode([SavedDevice].self, from: data) {
             devices = savedDevices
         }
-        
+
         // Ensure internal device is not in the saved list (handled separately)
         devices.removeAll(where: { $0.id == .internalDeviceID })
 
@@ -1115,5 +1145,34 @@ class DeviceManager: ObservableObject {
         if let max = UserDefaults.standard.object(forKey: "strokeMax") as? Double {
             strokeMax = max
         }
+
+        if let sel = UserDefaults.standard.string(forKey: "selectedPreset"), let p = DeviceWavePreset(rawValue: sel) {
+            selectedPreset = p
+        }
+
+        if let ai = UserDefaults.standard.object(forKey: "audioIntensity") as? Double {
+            audioIntensity = ai
+        } else if let ami = UserDefaults.standard.object(forKey: "audioMaxIntensity") as? Double {
+            // Migration
+            audioIntensity = ami
+        }
+
+        if let mi = UserDefaults.standard.object(forKey: "masterIntensity") as? Double {
+            masterIntensity = mi
+        }
+        
+        // OSSM Settings
+        ossmSensation = UserDefaults.standard.object(forKey: "ossmSensation") as? Double ?? 50
+        ossmStrokerMode = UserDefaults.standard.bool(forKey: "ossmStrokerMode")
+        
+        // OSSM Limiters
+        ossmSpeedLimitMax = UserDefaults.standard.object(forKey: "ossmSpeedLimitMax") as? Double ?? 100
+        ossmSpeedLimitMin = UserDefaults.standard.double(forKey: "ossmSpeedLimitMin")
+        ossmStrokeLimitMax = UserDefaults.standard.object(forKey: "ossmStrokeLimitMax") as? Double ?? 100
+        ossmStrokeLimitMin = UserDefaults.standard.double(forKey: "ossmStrokeLimitMin")
+        ossmDepthLimitMax = UserDefaults.standard.object(forKey: "ossmDepthLimitMax") as? Double ?? 100
+        ossmDepthLimitMin = UserDefaults.standard.double(forKey: "ossmDepthLimitMin")
+        ossmSensationLimitMax = UserDefaults.standard.object(forKey: "ossmSensationLimitMax") as? Double ?? 100
+        ossmSensationLimitMin = UserDefaults.standard.double(forKey: "ossmSensationLimitMin")
     }
 }

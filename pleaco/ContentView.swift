@@ -12,7 +12,6 @@ struct ContentView: View {
         VStack(spacing: 0) {
             // Custom Top Navigation Bar
             CustomTopBar(selectedTab: $selectedTab)
-                .padding(.top, 8) // Optional safe area padding, depends on iOS version
                 .zIndex(1)
 
             // Main Content Area
@@ -22,19 +21,22 @@ struct ContentView: View {
                     HomeView()
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 case 1:
-                    AudioView()
+                    LibraryView()
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 case 2:
-                    SettingsView()
+                    AudioView()
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                case 3:
+                    DevicesView()
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 default:
                     EmptyView()
                 }
             }
             .animation(.easeInOut(duration: 0.3), value: selectedTab)
-            .onChange(of: selectedTab) { newValue in
-                DeviceManager.shared.stop()
-            }
+
+            // Global Player Card for stability across tab transitions
+            PlayerCard()
         }
         .background(Color.surfacePrimary.ignoresSafeArea())
         .tint(Color.appAccent)

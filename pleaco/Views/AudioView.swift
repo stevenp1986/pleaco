@@ -12,24 +12,15 @@ struct AudioView: View {
     @State private var showingAudioPicker = false
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            VStack(spacing: 0) {
-                ScrollView {
-                    VStack(spacing: 24) {
-                        // Tracks List Area
-                        tracksSection
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 24)
-                }
-                .contentMargins(.bottom, 180, for: .scrollContent)
-                .scrollClipDisabled()
+        ScrollView {
+            VStack(spacing: 24) {
+                // Tracks List Area
+                tracksSection
             }
-            .background(Color.surfacePrimary)
-
-            // Reusing the same Player Card from Home
-            PlayerCard()
+            .padding(.horizontal, 18)
+            .padding(.top, 24)
         }
+        .contentMargins(.bottom, 20, for: .scrollContent)
         .background(Color.surfacePrimary)
         #if os(iOS)
         .sheet(isPresented: $showingAudioPicker) {
@@ -71,7 +62,7 @@ struct AudioView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "plus.circle.fill")
-                        Text("Import")
+                        Text("Add")
                     }
                     .font(.subheadline.bold())
                     .foregroundColor(Color.appAccent)
@@ -91,8 +82,7 @@ struct AudioView: View {
                 .padding(.vertical, 40)
                 .appCardStyle()
             } else {
-                let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
-                LazyVGrid(columns: columns, spacing: 12) {
+                VStack(spacing: 12) {
                     ForEach(audioManager.savedTracks) { track in
                         trackRow(for: track)
                     }
@@ -105,7 +95,6 @@ struct AudioView: View {
         let isSelected = deviceManager.activeAudioTrack?.id == track.id
         
         return Button {
-            audioManager.loadTrack(track)
             deviceManager.applyAudioTrack(track)
         } label: {
             HStack(spacing: 16) {

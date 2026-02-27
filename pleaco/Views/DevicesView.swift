@@ -1,7 +1,7 @@
 import SwiftUI
 import Combine
 
-struct SettingsView: View {
+struct DevicesView: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject var deviceManager = DeviceManager.shared
     @State private var showingAddEditor = false
@@ -12,13 +12,10 @@ struct SettingsView: View {
             ScrollView {
                 VStack(spacing: 28) {
                     devicesSection
-
-                    playbackSection
                 }
-                .padding(.top, 32)
+                .padding(.top, 24)
                 .padding(.bottom, 60)
             }
-            .scrollClipDisabled()
         }
         .background(Color.surfacePrimary)
         .sheet(isPresented: $showingAddEditor) {
@@ -43,11 +40,9 @@ struct SettingsView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "plus.circle.fill")
-                            .font(.title3)
                         Text("Add")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
                     }
+                    .font(.subheadline.bold())
                     .foregroundColor(Color.appAccent)
                 }
             }
@@ -63,28 +58,6 @@ struct SettingsView: View {
                 }) {
                     dismiss()
                 }
-            }
-        }
-    }
-
-    // MARK: – Playback Section
-
-    private var playbackSection: some View {
-        SettingsSectionCard(title: "Playback", icon: "gauge.with.needle") {
-            VStack(spacing: 16) {
-                HStack {
-                    Text("Default Intensity")
-                        .font(.subheadline)
-                    Spacer()
-                    Text("\(Int(deviceManager.defaultIntensity))%")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.secondary)
-                        .monospacedDigit()
-                }
-
-                Slider(value: $deviceManager.defaultIntensity, in: 1...100, step: 1)
-                    .tint(Color.appAccent)
             }
         }
     }
@@ -127,7 +100,8 @@ struct DeviceCard: View {
     var onSelect: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
+        HStack(spacing: 0) {
+            // 1. Selection Area (Icon & Text)
             HStack(spacing: 16) {
                 ZStack {
                     Circle()
@@ -158,19 +132,8 @@ struct DeviceCard: View {
                             .foregroundColor(deviceManager.activeDeviceId == device.id ? .white.opacity(0.7) : .secondary)
                     }
                 }
-
+                
                 Spacer()
-
-                if device.type != .internal {
-                    Button(action: onEdit) {
-                        Image(systemName: "pencil")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(deviceManager.activeDeviceId == device.id ? .white : Color.appAccent)
-                            .padding(6)
-                            .background(Circle().fill(deviceManager.activeDeviceId == device.id ? Color.white.opacity(0.2) : Color.surfaceSecondary))
-                    }
-                    .buttonStyle(.plain)
-                }
             }
             .padding(14)
             .contentShape(Rectangle())
@@ -179,6 +142,24 @@ struct DeviceCard: View {
                     deviceManager.setActiveDevice(device)
                     onSelect()
                 }
+            }
+
+            // 2. Edit Button (Pencil icon)
+            if device.type != .internal {
+                Button(action: onEdit) {
+                    ZStack {
+                        Circle()
+                            .fill(deviceManager.activeDeviceId == device.id ? Color.white.opacity(0.2) : Color.surfaceSecondary)
+                            .frame(width: 32, height: 32)
+                        
+                        Image(systemName: "pencil")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(deviceManager.activeDeviceId == device.id ? .white : Color.appAccent)
+                    }
+                    .padding(14)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
         }
         .appCardStyle(isSelected: deviceManager.activeDeviceId == device.id)
