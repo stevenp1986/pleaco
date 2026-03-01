@@ -10,10 +10,11 @@ struct LibraryView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
+            VStack(alignment: .leading, spacing: 24) {
                 librarySections
                 Spacer(minLength: 20)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 18)
             .padding(.top, 24)
             .padding(.bottom, 20)

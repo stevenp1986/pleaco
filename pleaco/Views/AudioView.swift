@@ -17,6 +17,7 @@ struct AudioView: View {
                 // Tracks List Area
                 tracksSection
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 18)
             .padding(.top, 24)
         }

@@ -8,7 +8,6 @@ struct TouchControlView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: "Manual Intensity", icon: "bolt.fill")
-                .padding(.horizontal, 18)
             
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
@@ -78,7 +77,7 @@ struct TouchControlView: View {
                 )
             }
             .frame(height: 80)
-            .padding(.horizontal, 18)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

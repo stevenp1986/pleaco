@@ -15,11 +15,11 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 24) {
                 // 1. Manual Touch Control
                 TouchControlView()
-                    .padding(.top, 4)
 
                 // 2. Device Programs
                 patternsSection
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 18)
             .padding(.top, 24)
             .padding(.bottom, 20)
@@ -44,8 +44,8 @@ struct HomeView: View {
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(1...9, id: \.self) { index in
                             let isSpeed = index <= 3
-                            let title = isSpeed ? speedLabel(index) : "Pattern \(index - 3)"
-                            let icon = isSpeed ? "speedometer" : patternIcon(index)
+                            let title = index <= 9 ? patternName(index) : "Pattern \(index - 3)"
+                            let icon = patternIcon(index)
                             
                             PatternCard(
                                 title: title,
@@ -62,20 +62,35 @@ struct HomeView: View {
         }
     }
 
-    private func speedLabel(_ prog: Int) -> String {
+    private func patternName(_ prog: Int) -> String {
         switch prog {
         case 1: return "Low"
         case 2: return "Medium"
         case 3: return "High"
-        default: return "–"
+        case 4: return "Rabbit"
+        case 5: return "Ping-Pong"
+        case 6: return "Smartphone"
+        case 7: return "Gearbox"
+        case 8: return "Acceleration"
+        case 9: return "Emergency"
+        default: return "Pattern \(prog - 3)"
         }
     }
 
     private func patternIcon(_ prog: Int) -> String {
-        let icons = ["waveform", "waveform.path.ecg", "waveform.path.ecg.rectangle",
-                     "chart.bar.fill", "chart.line.uptrend.xyaxis", "bolt.fill"]
-        if prog <= 3 { return "speedometer" }
-        return icons[(prog - 4) % icons.count]
+        switch prog {
+        case 1...3: return "speedometer"
+        case 4: return "hare.fill"           // Rabbit
+        case 5: return "figure.table.tennis" // Ping-Pong
+        case 6: return "iphone"              // Smartphone
+        case 7: return "gearshape.2.fill"     // Gearbox
+        case 8: return "gauge.with.dots.needle.bottom.100percent" // Acceleration
+        case 9: return "exclamationmark.triangle.fill" // Emergency
+        default:
+            let icons = ["waveform", "waveform.path.ecg", "waveform.path.ecg.rectangle",
+                         "chart.bar.fill", "chart.line.uptrend.xyaxis", "bolt.fill"]
+            return icons[(prog - 1) % icons.count]
+        }
     }
 }
 

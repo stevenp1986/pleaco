@@ -17,7 +17,7 @@ enum DeviceType: String, CaseIterable, Identifiable, Codable {
     case intiface = "Intiface"
     case lovespouse = "LoveSpouse"
     case ossm = "OSSM"
-    case `internal` = "Phone Vibration"
+    case `internal` = "Phone"
 
     var id: String { rawValue }
 
@@ -222,6 +222,12 @@ class DeviceManager: ObservableObject {
                 case 1: return "Low"
                 case 2: return "Medium"
                 case 3: return "High"
+                case 4: return "Rabbit"
+                case 5: return "Ping-Pong"
+                case 6: return "Smartphone"
+                case 7: return "Gearbox"
+                case 8: return "Acceleration"
+                case 9: return "Emergency"
                 default: return "Pattern \(prog - 3)"
                 }
             }

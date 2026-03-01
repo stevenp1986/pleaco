@@ -12,6 +12,7 @@ struct DevicesView: View {
             VStack(alignment: .leading, spacing: 24) {
                 devicesSection
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 18)
             .padding(.top, 24)
             .padding(.bottom, 60)
