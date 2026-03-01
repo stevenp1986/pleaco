@@ -10,7 +10,7 @@ import SwiftUI
 struct PlayerCard: View {
     @ObservedObject var deviceManager = DeviceManager.shared
     @StateObject private var audioManager = AudioManager.shared
-    @State private var isExpanded: Bool = true
+    @State private var isExpanded: Bool = false
 
     private var hasSliders: Bool {
         deviceManager.activeDevice?.type != .lovespouse || deviceManager.activeAudioTrack != nil
@@ -283,10 +283,11 @@ struct PlayerCard: View {
                 }
         )
         .animation(.easeInOut(duration: 0.4), value: deviceManager.isPlaying)
-        .onChange(of: hasSliders) { oldVal, newVal in
-            // Auto-expand when switching to a device without a collapse-toggle
-            // This prevents being "stuck" in a collapsed-like state.
-            if !newVal { isExpanded = true }
+        .onChange(of: deviceManager.activeDeviceId) { oldVal, newVal in
+            isExpanded = false
+        }
+        .onChange(of: deviceManager.activeAudioTrack) { oldVal, newVal in
+            isExpanded = false
         }
     }
     

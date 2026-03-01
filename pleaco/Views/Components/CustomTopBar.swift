@@ -18,7 +18,7 @@ struct CustomTopBar: View {
             HStack(spacing: 0) {
                 ForEach(0..<tabs.count, id: \.self) { index in
                     Button {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        withAnimation(.easeInOut(duration: 0.2)) {
                             selectedTab = index
                         }
                     } label: {

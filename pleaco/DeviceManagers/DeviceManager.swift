@@ -128,9 +128,7 @@ class DeviceManager: ObservableObject {
 
     @Published var devices: [SavedDevice] = []
     @Published var activeDeviceId: UUID?
-    @Published var selectedPreset: DeviceWavePreset = .sine75 {
-        didSet { UserDefaults.standard.set(selectedPreset.rawValue, forKey: "selectedPreset") }
-    }
+    @Published var selectedPreset: DeviceWavePreset? = nil
     @Published var isPlaying: Bool = false
     @Published var currentLevel: Double = 0
     @Published var strokeMin: Double = 0 {
@@ -221,9 +219,9 @@ class DeviceManager: ObservableObject {
             let prog = selectedLoveSpouseProgram
             if prog > 0 {
                 switch prog {
-                case 1: return "Light"
+                case 1: return "Low"
                 case 2: return "Medium"
-                case 3: return "Strong"
+                case 3: return "High"
                 default: return "Pattern \(prog - 3)"
                 }
             }
@@ -234,7 +232,7 @@ class DeviceManager: ObservableObject {
         if activeFunScript != nil {
             return "Imported Script"
         }
-        return selectedPreset.rawValue
+        return selectedPreset?.rawValue ?? "Kein Pattern"
     }
     
     // Stable instance for the internal device
@@ -709,7 +707,7 @@ class DeviceManager: ObservableObject {
 
         // 2. Current state: Software Preset
         if activeFunScriptId == nil {
-            if let idx = presets.firstIndex(of: selectedPreset) {
+            if let preset = selectedPreset, let idx = presets.firstIndex(of: preset) {
                 if idx < presets.count - 1 {
                     applyPreset(presets[idx + 1])
                 } else if !customScripts.isEmpty {
@@ -773,7 +771,7 @@ class DeviceManager: ObservableObject {
 
         // 2. Current state: Software Preset
         if activeFunScriptId == nil {
-            if let idx = presets.firstIndex(of: selectedPreset) {
+            if let preset = selectedPreset, let idx = presets.firstIndex(of: preset) {
                 if idx > 0 {
                     applyPreset(presets[idx - 1])
                 } else if isLS || isOSSM {
@@ -947,7 +945,8 @@ class DeviceManager: ObservableObject {
         }
     }
 
-    private func timerInterval(for preset: DeviceWavePreset) -> TimeInterval {
+    private func timerInterval(for preset: DeviceWavePreset?) -> TimeInterval {
+        guard let preset = preset else { return 1.0 }
         switch preset {
         case .sine75:     return 0.1
         case .foreplay:   return 0.05
@@ -978,7 +977,8 @@ class DeviceManager: ObservableObject {
     }
 
     private func calculateWaveValue(time: Double) -> Double {
-        switch selectedPreset {
+        guard let preset = selectedPreset else { return 0.0 }
+        switch preset {
         case .sine75:
             return 1.0
         case .foreplay:

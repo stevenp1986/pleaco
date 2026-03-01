@@ -13,7 +13,7 @@ struct AudioView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
+            VStack(alignment: .leading, spacing: 24) {
                 // Tracks List Area
                 tracksSection
             }
@@ -53,8 +53,8 @@ struct AudioView: View {
     // MARK: - Subviews
 
     private var tracksSection: some View {
-        VStack(spacing: 16) {
-            HStack {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
                 SectionHeader(title: "Library", icon: "music.note.list")
                 Spacer()
                 Button {
@@ -64,7 +64,7 @@ struct AudioView: View {
                         Image(systemName: "plus.circle.fill")
                         Text("Add")
                     }
-                    .font(.subheadline.bold())
+                    .font(.headline.weight(.semibold))
                     .foregroundColor(Color.appAccent)
                 }
             }

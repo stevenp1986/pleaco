@@ -10,10 +10,11 @@ struct LibraryView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 28) {
+            VStack(spacing: 24) {
                 librarySections
                 Spacer(minLength: 20)
             }
+            .padding(.horizontal, 18)
             .padding(.top, 24)
             .padding(.bottom, 20)
         }
@@ -22,17 +23,16 @@ struct LibraryView: View {
     }
 
     private var librarySections: some View {
-        VStack(alignment: .leading, spacing: 32) {
+        VStack(alignment: .leading, spacing: 24) {
             let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
 
             // 1. Scripts (Custom FunScripts)
             VStack(alignment: .leading, spacing: 12) {
-                HStack {
+                HStack(alignment: .firstTextBaseline) {
                     SectionHeader(title: "Scripts", icon: "scroll")
                     Spacer()
                     FunScriptImportButton()
                 }
-                .padding(.horizontal, 18)
 
                 if deviceManager.customScripts.isEmpty {
                     Text("No scripts imported")
@@ -54,14 +54,12 @@ struct LibraryView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 18)
                 }
             }
 
             // 2. App Patterns (Software Presets)
             VStack(alignment: .leading, spacing: 12) {
                 SectionHeader(title: "App Patterns", icon: "waveform")
-                    .padding(.horizontal, 18)
 
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(PatternEngine.navigablePresets, id: \.self) { preset in
@@ -76,7 +74,6 @@ struct LibraryView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 18)
             }
         }
     }

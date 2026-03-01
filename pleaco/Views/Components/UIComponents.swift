@@ -28,6 +28,7 @@ struct AppCardModifier: ViewModifier {
                 LinearGradient.cardGradient
                     .clipShape(RoundedRectangle(cornerRadius: 22))
                     .opacity(isSelected ? 1 : 0)
+                    .allowsHitTesting(false)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 22)
@@ -35,6 +36,7 @@ struct AppCardModifier: ViewModifier {
                         isSelected ? Color.white.opacity(0.12) : Color.subtleBorder,
                         lineWidth: 0.5
                     )
+                    .allowsHitTesting(false)
             )
             .shadow(
                 color: isSelected ? Color.glowAccent : .black.opacity(0.05),
@@ -51,6 +53,39 @@ extension View {
     }
 }
 
+// MARK: – Base Card Structure
+struct BaseCard<Content: View>: View {
+    let title: String
+    let isSelected: Bool
+    let onTap: () -> Void
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(spacing: 8) {
+                Spacer(minLength: 0)
+
+                content()
+                    .frame(height: 48)
+
+                Spacer(minLength: 0)
+
+                Text(title)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity)
+            .frame(height: 110)
+            .contentShape(Rectangle())
+            .appCardStyle(isSelected: isSelected)
+            .foregroundColor(isSelected ? .white : .primary)
+        }
+        .buttonStyle(ScaleButtonStyle())
+    }
+}
+
 // MARK: – Pattern Card
 
 struct PatternCard: View {
@@ -62,52 +97,39 @@ struct PatternCard: View {
     var onDelete: (() -> Void)? = nil
 
     var body: some View {
-        Button(action: onTap) {
-            VStack(spacing: 8) {
-                ZStack {
-                    if let icon = systemIcon, curvePoints.count <= 1 {
-                        Image(systemName: icon)
-                            .font(.system(size: 22, weight: .medium))
-                            .foregroundColor(isSelected ? .white : Color.appAccent)
-                    } else {
-                        Canvas { context, size in
-                            guard curvePoints.count > 1 else { return }
-                            let w = size.width
-                            let h = size.height
-                            let count = curvePoints.count
-                            let yInset: CGFloat = 6
-                            let drawH = h - yInset * 2
+        BaseCard(title: title, isSelected: isSelected, onTap: onTap) {
+            ZStack {
+                if let icon = systemIcon, curvePoints.count <= 1 {
+                    Image(systemName: icon)
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundColor(isSelected ? .white : Color.appAccent)
+                } else {
+                    Canvas { context, size in
+                        guard curvePoints.count > 1 else { return }
+                        let w = size.width
+                        let h = size.height
+                        let count = curvePoints.count
+                        let yInset: CGFloat = 6
+                        let drawH = h - yInset * 2
 
-                            var path = Path()
-                            for (i, val) in curvePoints.enumerated() {
-                                let x = CGFloat(i) / CGFloat(count - 1) * w
-                                let y = yInset + (drawH - CGFloat(val) * drawH)
-                                if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
-                                else { path.addLine(to: CGPoint(x: x, y: y)) }
-                            }
-                            context.stroke(
-                                path,
-                                with: .color(isSelected ? .white : Color.appAccent),
-                                lineWidth: 2.2
-                            )
+                        var path = Path()
+                        for (i, val) in curvePoints.enumerated() {
+                            let x = CGFloat(i) / CGFloat(count - 1) * w
+                            let y = yInset + (drawH - CGFloat(val) * drawH)
+                            if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
+                            else { path.addLine(to: CGPoint(x: x, y: y)) }
                         }
-                        .frame(height: 48)
-                        .padding(.horizontal, 8)
+                        context.stroke(
+                            path,
+                            with: .color(isSelected ? .white : Color.appAccent),
+                            lineWidth: 2.2
+                        )
                     }
+                    .frame(height: 48)
+                    .padding(.horizontal, 8)
                 }
-
-                Text(title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
             }
-            .padding(12)
-            .frame(maxWidth: .infinity)
-            .frame(height: 110)
-            .appCardStyle(isSelected: isSelected)
-            .foregroundColor(isSelected ? .white : .primary)
         }
-        .buttonStyle(ScaleButtonStyle())
         .contextMenu {
             if let onDelete {
                 Button(role: .destructive) {
@@ -137,8 +159,8 @@ struct FunScriptImportButton: View {
             HStack(spacing: 4) {
                 Image(systemName: "plus.circle.fill")
                 Text("Add")
+                    .font(.headline.weight(.semibold))
             }
-            .font(.subheadline.bold())
             .foregroundColor(Color.appAccent)
         }
         #if os(iOS)

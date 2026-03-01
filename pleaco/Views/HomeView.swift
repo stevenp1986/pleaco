@@ -12,16 +12,15 @@ struct HomeView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
-            // 1. Manual Touch Control
-            TouchControlView()
-                .padding(.top, 4)
+            VStack(alignment: .leading, spacing: 24) {
+                // 1. Manual Touch Control
+                TouchControlView()
+                    .padding(.top, 4)
 
-            // 2. Device Programs
-            VStack(alignment: .leading, spacing: 12) {
+                // 2. Device Programs
                 patternsSection
             }
-            }
+            .padding(.horizontal, 18)
             .padding(.top, 24)
             .padding(.bottom, 20)
         }
@@ -35,15 +34,13 @@ struct HomeView: View {
     // MARK: – Patterns
 
     private var patternsSection: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
-
+        Group {
             // 1. Hardware Programs (LoveSpouse only)
             if deviceManager.activeDevice?.type == .lovespouse {
                 VStack(alignment: .leading, spacing: 12) {
                     SectionHeader(title: "Device Programs", icon: "cpu")
-                        .padding(.horizontal, 18)
                     
+                    let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(1...9, id: \.self) { index in
                             let isSpeed = index <= 3
@@ -60,13 +57,8 @@ struct HomeView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 18)
                 }
-            } else {
-                // No hardware programs available - keep clean
-                EmptyView()
             }
-
         }
     }
 

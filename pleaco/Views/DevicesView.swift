@@ -8,14 +8,13 @@ struct DevicesView: View {
     @State private var deviceToEdit: SavedDevice? = nil
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 28) {
-                    devicesSection
-                }
-                .padding(.top, 24)
-                .padding(.bottom, 60)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                devicesSection
             }
+            .padding(.horizontal, 18)
+            .padding(.top, 24)
+            .padding(.bottom, 60)
         }
         .background(Color.surfacePrimary)
         .sheet(isPresented: $showingAddEditor) {
@@ -32,7 +31,7 @@ struct DevicesView: View {
 
     private var devicesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
                 SectionHeader(title: "Devices", icon: "cable.connector")
                 Spacer()
                 Button {
@@ -42,21 +41,23 @@ struct DevicesView: View {
                         Image(systemName: "plus.circle.fill")
                         Text("Add")
                     }
-                    .font(.subheadline.bold())
+                    .font(.headline.weight(.semibold))
                     .foregroundColor(Color.appAccent)
                 }
             }
-            .padding(.horizontal, 18)
 
-            DeviceCard(device: deviceManager.internalDevice, onEdit: { }) {
-                dismiss()
-            }
-
-            ForEach(deviceManager.devices) { device in
-                DeviceCard(device: device, onEdit: {
-                    deviceToEdit = device
-                }) {
+            let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
+            LazyVGrid(columns: columns, spacing: 12) {
+                DeviceCard(device: deviceManager.internalDevice, onEdit: { }) {
                     dismiss()
+                }
+
+                ForEach(deviceManager.devices) { device in
+                    DeviceCard(device: device, onEdit: {
+                        deviceToEdit = device
+                    }) {
+                        dismiss()
+                    }
                 }
             }
         }
@@ -100,70 +101,40 @@ struct DeviceCard: View {
     var onSelect: () -> Void
 
     var body: some View {
-        HStack(spacing: 0) {
-            // 1. Selection Area (Icon & Text)
-            HStack(spacing: 16) {
-                ZStack {
-                    Circle()
-                        .fill(
-                            deviceManager.activeDeviceId == device.id
-                                ? AnyShapeStyle(Color.white.opacity(0.15))
-                                : AnyShapeStyle(Color.surfaceSecondary)
-                        )
-                        .frame(width: 38, height: 38)
-
-                    Image(systemName: device.type.icon)
-                        .font(.system(size: 14))
-                        .foregroundColor(deviceManager.activeDeviceId == device.id ? .white : Color.appAccent)
-                }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("\(device.name) (\(device.type.rawValue))")
-                        .font(.subheadline.bold())
-                        .foregroundColor(deviceManager.activeDeviceId == device.id ? .white : .primary)
-
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(deviceManager.activeDeviceId == device.id ? Color.white.opacity(0.8) : (device.isConnected ? Color.appAccent.opacity(0.85) : Color.gray))
-                            .frame(width: 5, height: 5)
-
-                        Text(device.isConnected ? "Verbunden" : "Nicht verbunden")
-                            .font(.system(size: 11))
-                            .foregroundColor(deviceManager.activeDeviceId == device.id ? .white.opacity(0.7) : .secondary)
-                    }
-                }
-                
-                Spacer()
-            }
-            .padding(14)
-            .contentShape(Rectangle())
-            .onTapGesture {
+        BaseCard(
+            title: device.type.rawValue,
+            isSelected: deviceManager.activeDeviceId == device.id,
+            onTap: {
                 withAnimation(.spring(response: 0.3)) {
                     deviceManager.setActiveDevice(device)
                     onSelect()
                 }
             }
-
-            // 2. Edit Button (Pencil icon)
+        ) {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: device.type.icon)
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundColor(deviceManager.activeDeviceId == device.id ? .white : Color.appAccent)
+                    
+                // Connection Status Dot
+                if device.type != .internal {
+                    Circle()
+                        .fill(device.isConnected ? Color.green : Color.gray)
+                        .frame(width: 8, height: 8)
+                        .shadow(color: .black.opacity(0.3), radius: 2)
+                        .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+                        .offset(x: 10, y: -4)
+                }
+            }
+            .frame(height: 48)
+        }
+        .contextMenu {
             if device.type != .internal {
                 Button(action: onEdit) {
-                    ZStack {
-                        Circle()
-                            .fill(deviceManager.activeDeviceId == device.id ? Color.white.opacity(0.2) : Color.surfaceSecondary)
-                            .frame(width: 32, height: 32)
-                        
-                        Image(systemName: "pencil")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(deviceManager.activeDeviceId == device.id ? .white : Color.appAccent)
-                    }
-                    .padding(14)
-                    .contentShape(Rectangle())
+                    Label("Edit", systemImage: "pencil")
                 }
-                .buttonStyle(.plain)
             }
         }
-        .appCardStyle(isSelected: deviceManager.activeDeviceId == device.id)
-        .padding(.horizontal, 18)
         .animation(.easeInOut(duration: 0.2), value: deviceManager.activeDeviceId)
         .animation(.easeInOut(duration: 0.2), value: device.isConnected)
     }

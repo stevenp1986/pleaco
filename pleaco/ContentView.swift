@@ -19,21 +19,21 @@ struct ContentView: View {
                 switch selectedTab {
                 case 0:
                     HomeView()
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                        .transition(.opacity)
                 case 1:
                     LibraryView()
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                        .transition(.opacity)
                 case 2:
                     AudioView()
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                        .transition(.opacity)
                 case 3:
                     DevicesView()
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                        .transition(.opacity)
                 default:
                     EmptyView()
                 }
             }
-            .animation(.easeInOut(duration: 0.3), value: selectedTab)
+            .animation(.easeInOut(duration: 0.2), value: selectedTab)
 
             // Global Player Card for stability across tab transitions
             PlayerCard()
@@ -52,7 +52,8 @@ struct MiniWaveformPreview: View {
         if let script = deviceManager.activeFunScript {
             return PatternEngine.sampleFunScriptCurve(script, pointCount: 30)
         }
-        return PatternEngine.cachedCurves[deviceManager.selectedPreset] ?? []
+        guard let preset = deviceManager.selectedPreset else { return [] }
+        return PatternEngine.cachedCurves[preset] ?? []
     }
 
     var body: some View {
