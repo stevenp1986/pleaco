@@ -27,6 +27,9 @@ struct ContentView: View {
                     AudioView()
                         .transition(.opacity)
                 case 3:
+                    RemoteView()
+                        .transition(.opacity)
+                case 4:
                     DevicesView()
                         .transition(.opacity)
                 default:

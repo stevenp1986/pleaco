@@ -1,0 +1,13 @@
+{
+  "name": "pleaco-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Minimal privacy-first WebSocket relay for pleaco remote control",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}

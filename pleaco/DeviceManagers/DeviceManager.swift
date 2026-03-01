@@ -325,6 +325,18 @@ class DeviceManager: ObservableObject {
 
     // MARK: - Device Management
 
+    func nextUniqueName(for type: DeviceType) -> String {
+        let baseName = type.rawValue
+        var name = baseName
+        var counter = 2
+        
+        while devices.contains(where: { $0.name == name }) {
+            name = "\(baseName) \(counter)"
+            counter += 1
+        }
+        return name
+    }
+
     func addDevice(_ device: SavedDevice) {
         devices.append(device)
         saveDevices()
@@ -496,7 +508,10 @@ class DeviceManager: ObservableObject {
         case .intiface:
             break
         case .lovespouse:
-            if activeAudioTrack != nil {
+            if RemoteManager.shared.isApplyingRemoteLevel {
+                // Remote levels drive LoveSpouse directly via setLevel — don't send a program command
+                break
+            } else if activeAudioTrack != nil {
                 // Must be 0 (manual mode) for Audio Sync to stream raw vibration levels
                 loveSpouseManager.selectProgram(0)
             } else {
@@ -513,6 +528,11 @@ class DeviceManager: ObservableObject {
         stopWaveTimer()
         isManualControlActive = false
         isPlaying = false
+
+        // Forward stop to remote partner (skip if this stop came from remote)
+        if RemoteManager.shared.state == .connected && !RemoteManager.shared.isApplyingRemoteLevel {
+            RemoteManager.shared.sendStop()
+        }
         
         if activeAudioTrack != nil {
             AudioManager.shared.pause()
@@ -887,11 +907,18 @@ class DeviceManager: ObservableObject {
     }
 
     func sendLevel(_ level: Double) {
+        // Forward to remote partner if connected (skip if this level came from remote — prevents echo)
+        if RemoteManager.shared.state == .connected && !RemoteManager.shared.isApplyingRemoteLevel {
+            RemoteManager.shared.sendLevel(level)
+        }
+
         guard let device = activeDevice, device.isConnected else { return }
 
         // Safety: If a LoveSpouse hardware program is active, ignore software speed updates
         // to prevent command collisions that lead to "stuck" vibration.
-        if device.type == .lovespouse && selectedLoveSpouseProgram > 0 {
+        // Exception: remote-received levels always pass through.
+        if device.type == .lovespouse && selectedLoveSpouseProgram > 0
+            && !RemoteManager.shared.isApplyingRemoteLevel {
             return
         }
 

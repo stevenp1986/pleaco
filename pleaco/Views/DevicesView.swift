@@ -284,7 +284,7 @@ struct DeviceEditorSheet: View {
         } else {
             let newDevice = SavedDevice(
                 id: UUID(),
-                name: deviceName.isEmpty ? "Neues \(deviceType.rawValue)" : deviceName,
+                name: deviceName.isEmpty ? deviceManager.nextUniqueName(for: deviceType) : deviceName,
                 type: deviceType,
                 connectionKey: connectionKey,
                 serverAddress: serverAddress

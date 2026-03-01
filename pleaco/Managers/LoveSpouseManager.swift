@@ -45,6 +45,9 @@ class LoveSpouseManager: NSObject, ObservableObject {
     private var peripheralManager: CBPeripheralManager!
     private var burstTimer: Timer?
     private var isAdvertising = false
+    private var lastBurstTime: Date = .distantPast
+    /// Keep-alive interval: restart advertising periodically to counter iOS silently stopping it
+    private let keepAliveInterval: TimeInterval = 3.0
     
     // Extracted UUID pairs [UUID5, UUID6] mapped to 0-9
     // Order based on binary sequence 0x6E down to 0x66 observed in PacketLogger
@@ -68,12 +71,12 @@ class LoveSpouseManager: NSObject, ObservableObject {
 
     // MARK: - Public API
 
-    /// Direct program selection. Sends a 500ms burst.
+    /// Direct program selection. Sends a burst and keeps advertising for active programs.
     func selectProgram(_ index: Int) {
-        // Optimization: Only restart the burst if the program changed OR we aren't advertising.
-        // This prevents the "cancel-loop" where high-frequency updates (e.g. 50Hz)
-        // perpetually restart the safety delay, preventing any command from firing.
-        if activeProgram == index && isAdvertising {
+        // Skip if same program, already advertising, and keep-alive hasn't expired.
+        // The keep-alive restart ensures iOS hasn't silently stopped our advertising.
+        let timeSinceLastBurst = Date().timeIntervalSince(lastBurstTime)
+        if activeProgram == index && isAdvertising && timeSinceLastBurst < keepAliveInterval {
             return
         }
 
@@ -89,7 +92,7 @@ class LoveSpouseManager: NSObject, ObservableObject {
     func setLevel(_ level: Double) {
         let clamped = max(0, min(100, level))
         let targetProgram: Int
-        
+
         if clamped == 0 {
             targetProgram = 0
         } else if clamped < 34 {
@@ -99,11 +102,10 @@ class LoveSpouseManager: NSObject, ObservableObject {
         } else {
             targetProgram = 3
         }
-        
-        // Only send if the program bucket changed
-        if targetProgram != activeProgram {
-            selectProgram(targetProgram)
-        }
+
+        // Always call selectProgram — it handles dedup internally
+        // and restarts advertising if it was silently stopped by iOS.
+        selectProgram(targetProgram)
     }
 
     func stopAll() {
@@ -169,6 +171,7 @@ class LoveSpouseManager: NSObject, ObservableObject {
         }
 
         pendingBurst = workItem
+        lastBurstTime = Date()
         // Small delay lets CoreBluetooth settle after stopAdvertising before restarting
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.025, execute: workItem)
     }
