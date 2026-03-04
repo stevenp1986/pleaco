@@ -27,6 +27,7 @@ function hashCode(code) {
 function destroyRoom(hash) {
   const room = rooms.get(hash);
   if (!room) return;
+  console.log(`[Room] Destroying room ${room.code} (${hash.substring(0, 8)})`);
   if (room.timer) clearTimeout(room.timer);
   rooms.delete(hash);
 }
@@ -72,6 +73,7 @@ wss.on('connection', (ws) => {
 
       const code = generateCode();
       const hash = hashCode(code);
+      console.log(`[Room] Created room ${code} (${hash.substring(0, 8)}). Total rooms: ${rooms.size + 1}`);
       const timer = setTimeout(() => destroyRoom(hash), JOIN_TIMEOUT_MS);
       rooms.set(hash, { clients: new Set([ws]), code, timer });
       return send(ws, { type: 'code', code });
@@ -87,6 +89,7 @@ wss.on('connection', (ws) => {
       removeClientFromRoom(ws);
 
       room.clients.add(ws);
+      console.log(`[Room] Client joined room ${room.code} (${hash.substring(0, 8)}). Clients: ${room.clients.size}`);
       if (room.timer) { clearTimeout(room.timer); room.timer = null; }
       // Notify both
       for (const peer of room.clients) {
