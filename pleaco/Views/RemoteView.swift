@@ -35,7 +35,7 @@ struct RemoteView: View {
 
     private var remoteSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "Remote", icon: "antenna.radiowaves.left.and.right")
+            SectionHeader(title: "Remote Session", icon: "antenna.radiowaves.left.and.right")
 
             switch remote.state {
             case .disconnected:
@@ -53,50 +53,69 @@ struct RemoteView: View {
     }
 
     // MARK: - Disconnected
-
+    
     private var disconnectedCard: some View {
-        VStack(spacing: 12) {
-            Button {
-                remote.hostSession()
-            } label: {
-                HStack {
-                    Image(systemName: "plus.circle.fill")
-                    Text("Create Session")
-                        .fontWeight(.semibold)
+        VStack(spacing: 12) { // Reduced spacing between row elements
+            // Join Input Field (Premium Style)
+            VStack(spacing: 8) {
+                HStack(spacing: 12) {
+                    Image(systemName: "key.fill")
+                        .foregroundColor(Color.appAccent)
+                        .font(.system(size: 18))
+                        .frame(width: 44, height: 44)
+                        .background(Circle().fill(Color.appAccent.opacity(0.1)))
+                    
+                    TextField("6-DIGIT CODE", text: $joinCode)
+                        .font(.system(size: 20, weight: .bold, design: .monospaced))
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                        .onChange(of: joinCode) { old, newValue in
+                            joinCode = String(newValue.uppercased().prefix(6))
+                        }
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-            }
-            .buttonStyle(ProminentButtonStyle())
-
-            Text("or")
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-            TextField("Enter Code", text: $joinCode)
-                .font(.system(size: 24, weight: .bold, design: .monospaced))
-                .multilineTextAlignment(.center)
-                .textInputAutocapitalization(.characters)
-                .autocorrectionDisabled()
                 .padding(12)
-                .appCardStyle()
-                .onChange(of: joinCode) { newValue in
-                    joinCode = String(newValue.uppercased().prefix(6))
-                }
-
-            Button {
-                remote.joinSession(code: joinCode)
-            } label: {
-                HStack {
-                    Image(systemName: "arrow.right.circle.fill")
-                    Text("Join Session")
-                        .fontWeight(.semibold)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color.cardBackground) // Same color as normal cards
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+                        )
+                )
             }
-            .buttonStyle(ProminentButtonStyle())
-            .disabled(joinCode.count != 6)
+            
+            // Action Buttons Row
+            HStack(spacing: 12) {
+                // Create Button
+                Button {
+                    remote.hostSession()
+                } label: {
+                    HStack {
+                        Image(systemName: "plus.circle.fill")
+                        Text("Create")
+                    }
+                    .font(.system(size: 16, weight: .bold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                }
+                .buttonStyle(SecondaryButtonStyle())
+                
+                // Join Button
+                Button {
+                    remote.joinSession(code: joinCode)
+                } label: {
+                    HStack {
+                        Image(systemName: "arrow.right.circle.fill")
+                        Text("Join")
+                    }
+                    .font(.system(size: 16, weight: .bold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                }
+                .buttonStyle(ProminentButtonStyle())
+                .disabled(joinCode.count != 6)
+                .opacity(joinCode.count == 6 ? 1.0 : 0.5)
+            }
         }
     }
 
@@ -151,47 +170,61 @@ struct RemoteView: View {
 
     private var connectedCards: some View {
         VStack(spacing: 12) {
-            // Status
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(Color.green)
-                    .frame(width: 8, height: 8)
+            // Status Indicator (Active Branding)
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.15))
+                        .frame(width: 24, height: 24)
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 8, height: 8)
+                        .shadow(color: Color.white.opacity(0.5), radius: 4)
+                }
+                
                 Text("Partner connected")
                     .font(.subheadline.bold())
-                    .foregroundColor(.primary)
+                
+                Spacer()
+                
+                Text("LIVE")
+                    .font(.system(size: 10, weight: .black))
+                    .foregroundColor(Color.appAccent)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Color.white))
             }
-            .frame(maxWidth: .infinity, minHeight: cardHeight)
-            .appCardStyle()
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .appCardStyle(isSelected: true)
+            .foregroundColor(.white)
 
-            // Incoming
+            // Incoming Activity Card
             HStack {
-                HStack(spacing: 8) {
-                    Image(systemName: "arrow.down.circle")
+                HStack(spacing: 10) {
+                    Image(systemName: "hand.tap.fill")
                         .font(.subheadline)
                         .foregroundColor(Color.appAccent)
-                    Text("Incoming")
-                        .font(.subheadline)
+                    Text("Incoming Signal")
+                        .font(.subheadline.weight(.medium))
                         .foregroundColor(.secondary)
                 }
                 Spacer()
                 Text("\(Int(remote.incomingLevel))%")
-                    .font(.system(size: 20, weight: .bold).monospacedDigit())
+                    .font(.system(size: 24, weight: .bold, design: .monospaced))
                     .foregroundColor(Color.appAccent)
             }
-            .frame(maxWidth: .infinity, minHeight: cardHeight)
-            .padding(.horizontal, 16)
-            .appCardStyle()
+            .padding(.horizontal, 20)
+            .frame(maxWidth: .infinity)
+            .frame(height: 80)
+            .appCardStyle(isSelected: false)
 
-            // Disconnect
+            // Disconnect Button (styled like Cancel button)
             Button {
                 remote.disconnect()
             } label: {
-                HStack {
-                    Image(systemName: "xmark.circle.fill")
-                    Text("Disconnect")
-                        .fontWeight(.semibold)
-                }
-                .frame(maxWidth: .infinity, minHeight: cardHeight)
+                Text("Disconnect Session")
             }
             .buttonStyle(SecondaryButtonStyle(isDestructive: true))
         }
@@ -209,30 +242,16 @@ struct RemoteView: View {
     }
 
     private var serverConfigToggle: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button {
-                withAnimation { showServerConfig.toggle() }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "server.rack")
-                        .font(.caption)
-                    Text("Server")
-                        .font(.caption)
-                    Image(systemName: showServerConfig ? "chevron.up" : "chevron.down")
-                        .font(.caption2)
-                }
-                .foregroundColor(.secondary)
-            }
-            .buttonStyle(.plain)
-
-            if showServerConfig {
-                TextField("wss://pleaco.shelf.am", text: $remote.serverAddress)
-                    .font(.system(size: 14, design: .monospaced))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .padding(12)
-                    .appCardStyle()
-            }
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeader(title: "Server", icon: "server.rack")
+            
+            TextField("wss://pleaco.shelf.am", text: $remote.serverAddress)
+                .font(.system(size: 14, design: .monospaced))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .padding(12)
+                .appCardStyle()
         }
+        .padding(.top, 12)
     }
 }

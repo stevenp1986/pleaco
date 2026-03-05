@@ -49,8 +49,10 @@ struct DevicesView: View {
 
             let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
             LazyVGrid(columns: columns, spacing: 12) {
-                DeviceCard(device: deviceManager.internalDevice, onEdit: { }) {
-                    dismiss()
+                if deviceManager.internalDevice.type.isSupported {
+                    DeviceCard(device: deviceManager.internalDevice, onEdit: { }) {
+                        dismiss()
+                    }
                 }
 
                 ForEach(deviceManager.devices) { device in
@@ -170,7 +172,7 @@ struct DeviceEditorSheet: View {
                 Section("Details") {
                     if editingDevice == nil {
                         Picker("Type", selection: $deviceType) {
-                            ForEach([DeviceType.handy, .oh, .intiface, .lovespouse, .ossm], id: \.self) { type in
+                            ForEach([DeviceType.handy, .oh, .intiface, .lovespouse, .ossm, .internal].filter { $0.isSupported }, id: \.self) { type in
                                 HStack {
                                     Image(systemName: type.icon)
                                     Text(type.rawValue)

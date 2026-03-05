@@ -16,6 +16,8 @@ class HandyManager: ObservableObject {
     private let baseURL = "https://www.handyfeeling.com/api/handy-rest/v3"
     private let apiKey = "Wu8AA1nDwSJl_P_pQiCdQkOnjNQjLVBL"
     
+    private var currentTask: URLSessionDataTask?
+    
     private init() {}
     
     func checkConnection(completion: @escaping (Bool) -> Void) {
@@ -64,6 +66,10 @@ class HandyManager: ObservableObject {
     }
     
     func stopMotion() {
+        // Cancel any pending velocity/level updates immediately
+        currentTask?.cancel()
+        currentTask = nil
+
         if deviceType == "Oh." {
             sendRequest(path: "/hvp/stop", method: "PUT") { _ in }
         } else {
@@ -72,18 +78,24 @@ class HandyManager: ObservableObject {
     }
     
     func setHampVelocity(speed: Double) {
+        // If speed is 0, we treat it as an explicit stop for maximum reliability
+        if speed <= 0 {
+            stopMotion()
+            return
+        }
+
         if deviceType == "Oh." {
             // HVP State uses amplitude 0.0 - 1.0. 
-            // 100Hz frequency and 200 position are reasonable defaults per API spec for LRAs.
-            let amplitude = speed / 100.0
+            // 75Hz is the default Sine resonance frequency for Oh! FW v4.
+            let amplitude = max(0.0, min(1.0, speed / 100.0))
             sendRequest(path: "/hvp/state", method: "PUT", params: [
                 "amplitude": amplitude,
-                "frequency": 100, 
-                "position": 200
+                "frequency": 75, 
+                "position": 50 // Standard mid-position for HVP
             ]) { _ in }
         } else {
             // HAMP Velocity uses 0.0 - 1.0 in v3
-            let velocity = max(0.0, min(1.0, speed / 100.0))
+            let velocity = max(0.03, min(1.0, speed / 100.0)) // v3 likes a small floor for activity
             sendRequest(path: "/hamp/velocity", method: "PUT", params: ["velocity": velocity]) { _ in }
         }
     }
@@ -120,6 +132,11 @@ class HandyManager: ObservableObject {
     private func sendRequest(path: String, method: String = "GET", params: [String: Any] = [:], completion: @escaping (Result<Data, Error>) -> Void = { _ in }) {
         guard !connectionKey.isEmpty else { return }
         
+        // Cancel pending state updates if a new one arrives (only for frequent update paths)
+        if path == "/hvp/state" || path == "/hamp/velocity" || path == "/hdsp/xpt" {
+            currentTask?.cancel()
+        }
+
         var urlString = baseURL + path
         if method == "GET" {
             // v3 recommends headers for connection key, so we keep URL clean unless forced
@@ -147,8 +164,11 @@ class HandyManager: ObservableObject {
             request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         }
         
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
+                if (error as NSError).code == NSURLErrorCancelled {
+                    return // Silent return on cancellation
+                }
                 NSLog("❌ HandyManager (v3): Network error on \(method) \(path) - \(error.localizedDescription)")
                 completion(.failure(error))
                 return
@@ -168,7 +188,13 @@ class HandyManager: ObservableObject {
             if let data = data {
                 completion(.success(data))
             }
-        }.resume()
+        }
+        
+        if path == "/hvp/state" || path == "/hamp/velocity" || path == "/hdsp/xpt" {
+            self.currentTask = task
+        }
+        
+        task.resume()
     }
 }
 

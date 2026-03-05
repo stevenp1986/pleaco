@@ -31,6 +31,12 @@ enum DeviceType: String, CaseIterable, Identifiable, Codable {
         case .internal: return "iphone.gen3"
         }
     }
+    var isSupported: Bool {
+        if self == .internal {
+            return UIDevice.current.userInterfaceIdiom == .phone
+        }
+        return true
+    }
 }
 
 enum DeviceWavePreset: String, CaseIterable, Identifiable, Codable {

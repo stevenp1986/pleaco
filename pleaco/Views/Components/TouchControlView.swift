@@ -13,7 +13,7 @@ struct TouchControlView: View {
                 ZStack(alignment: .leading) {
                     // Background Bar
                     RoundedRectangle(cornerRadius: 16)
-                        .fill(Color.surfaceSecondary)
+                        .fill(Color.cardBackground)
                         .overlay(
                             RoundedRectangle(cornerRadius: 16)
                                 .strokeBorder(Color.white.opacity(0.05), lineWidth: 1)
