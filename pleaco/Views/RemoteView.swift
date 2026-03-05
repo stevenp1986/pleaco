@@ -91,6 +91,7 @@ struct RemoteView: View {
                         Text("Create")
                     }
                     .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.appAccent)
                     .frame(maxWidth: .infinity)
                     .frame(height: Theme.standardCardHeight)
                 }
@@ -194,19 +195,6 @@ struct RemoteView: View {
                 }
                 
                 Spacer()
-                
-                HStack(spacing: 4) {
-                    Text("\(remote.partnerPing)ms")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.7))
-                    
-                    Text("LIVE")
-                        .font(.system(size: 10, weight: .black))
-                        .foregroundColor(Color.appAccent)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(Color.white))
-                }
             }
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity)
@@ -285,14 +273,15 @@ struct RemoteView: View {
                 .padding(.top, 4)
             }
 
-            // Disconnect Button (styled like Cancel button)
+            // Disconnect Button
             Button {
                 remote.disconnect()
             } label: {
                 Text("Disconnect Session")
+                    .foregroundColor(.appAccent)
                     .frame(height: Theme.standardCardHeight)
             }
-            .buttonStyle(SecondaryButtonStyle(isDestructive: true))
+            .buttonStyle(SecondaryButtonStyle())
         }
     }
 
@@ -303,8 +292,9 @@ struct RemoteView: View {
             remote.disconnect()
         } label: {
             Text("Cancel")
+                .foregroundColor(.appAccent)
         }
-        .buttonStyle(SecondaryButtonStyle(isDestructive: true))
+        .buttonStyle(SecondaryButtonStyle())
     }
 
     private var serverConfigToggle: some View {

@@ -30,45 +30,47 @@ struct LibraryView: View {
         Group {
             // 1. OSSM Hardware Controls (Removed, user wants to use MediaPlayer card instead)
             
-            // 2. LoveSpouse Hardware Programs
-            if deviceManager.activeDevice?.type == .lovespouse {
-                VStack(alignment: .leading, spacing: 12) {
-                    SectionHeader(title: "Device Programs", icon: "cpu")
-                    
-                    let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
-                    LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(1...9, id: \.self) { index in
-                            let title = patternName(index)
-                            let icon = patternIcon(index)
-                            
-                            PatternCard(
-                                title: title,
-                                curvePoints: [],
-                                systemIcon: icon,
-                                isSelected: deviceManager.selectedLoveSpouseProgram == index
-                            ) {
-                                deviceManager.selectLoveSpouseProgram(index)
+            if RemoteManager.shared.state != .connected {
+                // 2. LoveSpouse Hardware Programs
+                if deviceManager.activeDevice?.type == .lovespouse {
+                    VStack(alignment: .leading, spacing: 12) {
+                        SectionHeader(title: "Device Programs", icon: "cpu")
+                        
+                        let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
+                        LazyVGrid(columns: columns, spacing: 12) {
+                            ForEach(1...9, id: \.self) { index in
+                                let title = patternName(index)
+                                let icon = patternIcon(index)
+                                
+                                PatternCard(
+                                    title: title,
+                                    curvePoints: [],
+                                    systemIcon: icon,
+                                    isSelected: deviceManager.selectedLoveSpouseProgram == index
+                                ) {
+                                    deviceManager.selectLoveSpouseProgram(index)
+                                }
                             }
                         }
                     }
                 }
-            }
-            
-            // 3. OSSM Hardware Programs
-            if deviceManager.activeDevice?.type == .ossm && !ossmManager.availablePatterns.isEmpty {
-                VStack(alignment: .leading, spacing: 12) {
-                    SectionHeader(title: "OSSM Programs", icon: "cpu.fill")
-                    
-                    let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
-                    LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(Array(ossmManager.availablePatterns.enumerated()), id: \.offset) { index, name in
-                            PatternCard(
-                                title: name,
-                                curvePoints: [],
-                                systemIcon: "bolt.fill",
-                                isSelected: ossmManager.deviceState == "pattern" && ossmManager.lastRequestedDescriptionIndex == index
-                            ) {
-                                ossmManager.setPattern(index)
+                
+                // 3. OSSM Hardware Programs
+                if deviceManager.activeDevice?.type == .ossm && !ossmManager.availablePatterns.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        SectionHeader(title: "OSSM Programs", icon: "cpu.fill")
+                        
+                        let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
+                        LazyVGrid(columns: columns, spacing: 12) {
+                            ForEach(Array(ossmManager.availablePatterns.enumerated()), id: \.offset) { index, name in
+                                PatternCard(
+                                    title: name,
+                                    curvePoints: [],
+                                    systemIcon: "bolt.fill",
+                                    isSelected: ossmManager.deviceState == "pattern" && ossmManager.lastRequestedDescriptionIndex == index
+                                ) {
+                                    ossmManager.setPattern(index)
+                                }
                             }
                         }
                     }
