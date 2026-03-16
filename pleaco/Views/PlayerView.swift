@@ -272,7 +272,7 @@ struct PlayerView: View {
                 )
 
                 // PATTERN DESCRIPTION
-                if let patternIdx = Int(exactly: deviceManager.ossmManager.availablePatterns.firstIndex(of: deviceManager.currentPatternName) ?? -1),
+                if let patternIdx = deviceManager.ossmManager.availablePatterns.firstIndex(where: { $0.name == deviceManager.currentPatternName }),
                    let desc = deviceManager.ossmManager.patternDescriptions[patternIdx], !desc.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
                         SectionHeader(title: "Description", icon: "text.alignleft")

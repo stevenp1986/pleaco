@@ -62,9 +62,9 @@ struct LibraryView: View {
                         
                         let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
                         LazyVGrid(columns: columns, spacing: 12) {
-                            ForEach(Array(ossmManager.availablePatterns.enumerated()), id: \.offset) { index, name in
+                            ForEach(Array(ossmManager.availablePatterns.enumerated()), id: \.offset) { index, pattern in
                                 PatternCard(
-                                    title: name,
+                                    title: pattern.name,
                                     curvePoints: [],
                                     systemIcon: "bolt.fill",
                                     isSelected: ossmManager.deviceState == "pattern" && ossmManager.lastRequestedDescriptionIndex == index
