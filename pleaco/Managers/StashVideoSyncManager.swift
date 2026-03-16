@@ -101,6 +101,7 @@ class StashVideoSyncManager: ObservableObject {
         self.currentItem = playerItem
 
         // Register player with DeviceManager for unified control
+        DeviceManager.shared.clearAllPrograms(except: .video)
         DeviceManager.shared.activeVideoPlayer = player
 
         let settings: [String: Any] = [
@@ -123,14 +124,21 @@ class StashVideoSyncManager: ObservableObject {
         guard isActive, let output = videoOutput else { return }
         
         // If player is paused, ensure intensity is 0
-        if let player = DeviceManager.shared.activeVideoPlayer, player.rate == 0 {
-            if currentIntensity != 0 {
+        if let player = DeviceManager.shared.activeVideoPlayer {
+            if player.rate == 0 {
+                if currentIntensity != 0 {
+                    DispatchQueue.main.async {
+                        self.currentIntensity = 0
+                        DeviceManager.shared.setLevel(0)
+                    }
+                }
+                return
+            } else if !DeviceManager.shared.isPlaying {
+                // Auto-start hardware if video is playing but DeviceManager is stopped
                 DispatchQueue.main.async {
-                    self.currentIntensity = 0
-                    DeviceManager.shared.setLevel(0)
+                    DeviceManager.shared.start()
                 }
             }
-            return
         }
 
         let itemTime = output.itemTime(forHostTime: CACurrentMediaTime())

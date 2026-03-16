@@ -19,6 +19,8 @@ struct VideoSyncView: View {
     @State private var videoAspectRatio: CGFloat = 16/9
     @State private var isShowingFullscreen = false
     @State private var isShowingFileImporter = false
+    @State private var alertMessage = ""
+    @State private var isShowingAlert = false
     
     var body: some View {
         ScrollView {
@@ -42,19 +44,39 @@ struct VideoSyncView: View {
             player?.pause()
         }
         .onChange(of: selectedItem) { oldValue, newValue in
+            NSLog("🔵 VideoSyncView: selectedItem changed")
             Task {
                 do {
-                    if let movie = try await newValue?.loadTransferable(type: VideoMovie.self) {
-                        await MainActor.run {
-                            self.videoURL = movie.url
-                            setupPlayer(with: movie.url)
+                    if let item = newValue {
+                        NSLog("🔵 VideoSyncView: Attempting to load transferable...")
+                        if let movie = try await item.loadTransferable(type: VideoMovie.self) {
+                            NSLog("🔵 VideoSyncView: Video loaded successfully: \(movie.url.lastPathComponent)")
+                            await MainActor.run {
+                                self.videoURL = movie.url
+                                setupPlayer(with: movie.url)
+                            }
+                        } else {
+                            NSLog("⚠️ VideoSyncView: loadTransferable returned nil")
                         }
                     }
                 } catch {
-                    print("Error loading video: \(error)")
+                    NSLog("❌ VideoSyncView: Error loading video: \(error)")
+                    await MainActor.run {
+                        self.alertMessage = "Could not load video: \(error.localizedDescription)"
+                        self.isShowingAlert = true
+                    }
                     syncManager.lastError = "Picker: \(error.localizedDescription)"
                 }
+                // Reset selection so the same item can be picked again if needed
+                await MainActor.run {
+                    self.selectedItem = nil
+                }
             }
+        }
+        .alert("Video Error", isPresented: $isShowingAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(alertMessage)
         }
         .fullScreenCover(isPresented: $isShowingFullscreen) {
             if let player = player {
@@ -62,6 +84,7 @@ struct VideoSyncView: View {
                     .ignoresSafeArea()
             }
         }
+        .photosPicker(isPresented: $isShowingPicker, selection: $selectedItem, matching: .videos)
         .fileImporter(
             isPresented: $isShowingFileImporter,
             allowedContentTypes: [.movie, .video, .quickTimeMovie],
@@ -70,11 +93,15 @@ struct VideoSyncView: View {
             switch result {
             case .success(let urls):
                 if let url = urls.first {
-                    // Gain access to security-scoped resource
                     if url.startAccessingSecurityScopedResource() {
-                        setupPlayer(with: url)
-                        // Note: In a real app, you might want to stop accessing it when appropriate,
-                        // but for AVPlayer it's often needed throughout playback.
+                        do {
+                            let localURL = try VideoMovie.copyToTemp(url: url)
+                            setupPlayer(with: localURL)
+                        } catch {
+                            self.alertMessage = "Copy failed: \(error.localizedDescription)"
+                            self.isShowingAlert = true
+                        }
+                        url.stopAccessingSecurityScopedResource()
                     }
                 }
             case .failure(let error):
@@ -114,7 +141,9 @@ struct VideoSyncView: View {
                 // Integrated Controls Row
                 HStack(spacing: 12) {
                     Menu {
-                        PhotosPicker(selection: $selectedItem, matching: .videos) {
+                        Button(action: {
+                            isShowingPicker = true
+                        }) {
                             Label("Photo Library", systemImage: "photo.on.rectangle")
                         }
                         
@@ -136,19 +165,6 @@ struct VideoSyncView: View {
                     }
                     
                     Spacer()
-                    
-                    if deviceManager.isSyncingScript {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                                .tint(Color.appAccent)
-                            Text("Syncing with device...")
-                                .font(.caption.bold())
-                                .foregroundColor(Color.appAccent)
-                        }
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 12)
-                        .background(Capsule().fill(Color.appAccent.opacity(0.1)))
-                    }
                     
                     if player != nil {
                         HStack(spacing: 12) {
@@ -309,19 +325,25 @@ struct VideoMovie: Transferable {
     let url: URL
     
     static var transferRepresentation: some TransferRepresentation {
-        FileRepresentation(contentType: .movie) { movie in
+        FileRepresentation(contentType: .item) { movie in
             SentTransferredFile(movie.url)
         } importing: { received in
-            let fileName = "picker_\(UUID().uuidString).\(received.file.pathExtension)"
-            let copy = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
-            
-            if FileManager.default.fileExists(atPath: copy.path) {
-                try? FileManager.default.removeItem(at: copy)
-            }
-            
-            try FileManager.default.copyItem(at: received.file, to: copy)
+            let copy = try copyToTemp(url: received.file)
             return VideoMovie(url: copy)
         }
+    }
+    
+    static func copyToTemp(url: URL) throws -> URL {
+        let ext = url.pathExtension.lowercased()
+        let fileName = "picker_\(UUID().uuidString).\(ext.isEmpty ? "mp4" : ext)"
+        let copy = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+        
+        if FileManager.default.fileExists(atPath: copy.path) {
+            try? FileManager.default.removeItem(at: copy)
+        }
+        
+        try FileManager.default.copyItem(at: url, to: copy)
+        return copy
     }
 }
 

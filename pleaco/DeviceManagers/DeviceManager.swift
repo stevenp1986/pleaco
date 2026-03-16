@@ -112,6 +112,7 @@ enum ProgramType {
     case audio
     case manual
     case hardware
+    case video
 }
 
 class SavedDevice: ObservableObject, Identifiable, Codable, Hashable {
@@ -663,11 +664,20 @@ class DeviceManager: ObservableObject {
             // Ensure hardware is ready to receive commands
             // The slide range must be set first
             handyManager.setSlideRange(min: strokeMin, max: strokeMax)
-            if activeFunScript != nil {
-                handyManager.startDirectMode()
-            } else {
-                handyManager.startHamp()
-                handyManager.setHampVelocity(speed: currentLevel)
+            
+            // Ensure any HSSP session is stopped and then enter appropriate mode
+            handyManager.stopHSSP { [weak self] _ in
+                guard let self = self else { return }
+                DispatchQueue.main.async {
+                    if (self.activeFunScript != nil || self.activeVideoPlayer != nil) && device.type != .oh {
+                        NSLog("🔵 DeviceManager: Entering Direct Mode for FunScript or Video Sync")
+                        self.handyManager.startDirectMode()
+                    } else {
+                        NSLog("🔵 DeviceManager: Entering HAMP Mode for Vibration (forced for Oh! or Patterns)")
+                        self.handyManager.startHamp()
+                        self.handyManager.setHampVelocity(speed: self.currentLevel)
+                    }
+                }
             }
         case .intiface:
             break
@@ -807,11 +817,6 @@ class DeviceManager: ObservableObject {
         activeFunScriptId = nil
         funScriptPositionMs = 0
 
-        // If active device is Handy, prepare sync
-        if activeDevice?.type == .handy {
-            prepareHandySync()
-        }
-
         // Wait 0.1s for hardware to settle
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             if !self.isPlaying { self.start() } else { self.ensureHardwareStarted() }
@@ -852,11 +857,6 @@ class DeviceManager: ObservableObject {
         activeFunScript = namedScript.data
         activeFunScriptId = namedScript.id
         funScriptPositionMs = 0
-
-        // If active device is Handy, prepare sync
-        if activeDevice?.type == .handy {
-            prepareHandySync()
-        }
 
         // Wait 0.1s for hardware to settle
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -1065,17 +1065,14 @@ class DeviceManager: ObservableObject {
         if let script = activeFunScript {
             let fsInterval: TimeInterval
             if activeDevice?.type == .handy || activeDevice?.type == .oh {
-                fsInterval = 0.1
+                fsInterval = 0.01 // High res 100Hz streaming requested by user
             } else if activeDevice?.type == .ossm {
                 fsInterval = 0.02
             } else if activeDevice?.type == .lovespouse {
-                fsInterval = 0.1
+                fsInterval = 0.033
             } else {
                 fsInterval = 0.02
             }
-            
-            // If Handy HSSP is active, we don't send levels, just update local UI position
-            let isHandyHSSP = activeDevice?.type == .handy && lastSyncedScriptURL != nil
             
             waveTimer = Timer.scheduledTimer(withTimeInterval: fsInterval, repeats: true) { [weak self] _ in
                 guard let self = self, self.isPlaying else {
@@ -1088,9 +1085,6 @@ class DeviceManager: ObservableObject {
                     let playerMs = player.currentTime().seconds * 1000.0
                     if abs(self.funScriptPositionMs - playerMs) > 200 {
                         self.funScriptPositionMs = playerMs
-                        if isHandyHSSP {
-                            self.handyManager.playHSSP(startTimeMs: Int(playerMs)) { _ in }
-                        }
                     }
                 }
                 
@@ -1106,12 +1100,10 @@ class DeviceManager: ObservableObject {
 
                 self.currentLevel = speed
                 
-                if !isHandyHSSP {
-                    if activeDevice?.type == .ossm || activeDevice?.type == .handy || activeDevice?.type == .oh {
-                        self.sendPosition(pos * 100.0)
-                    } else {
-                        self.sendLevel(speed)
-                    }
+                if activeDevice?.type == .ossm || activeDevice?.type == .handy || activeDevice?.type == .oh {
+                    self.sendPosition(pos * 100.0)
+                } else {
+                    self.sendLevel(speed)
                 }
             }
             return
@@ -1186,7 +1178,11 @@ class DeviceManager: ObservableObject {
 
         switch device.type {
         case .handy:
-            handyManager.setHampVelocity(speed: level)
+            if activeVideoPlayer != nil {
+                handyManager.setDirectLevel(level: level)
+            } else {
+                handyManager.setHampVelocity(speed: level)
+            }
         case .oh:
             handyManager.setHampVelocity(speed: level)
         case .intiface:
@@ -1213,6 +1209,8 @@ class DeviceManager: ObservableObject {
             // We reuse sendLevel for remote for now, as it handles 0-100 values
             RemoteManager.shared.sendLevel(position)
         }
+        
+        // NSLog("🔵 DeviceManager: Sending Position %.1f to %@", position, device.type == .handy ? "Handy" : "Other")
 
         switch device.type {
         case .handy, .oh:
@@ -1248,7 +1246,7 @@ class DeviceManager: ObservableObject {
         }
     }
 
-    private func clearAllPrograms(except type: ProgramType) {
+    func clearAllPrograms(except type: ProgramType) {
         if type != .preset {
             // Preset is the "default" so we don't strictly clear it but it's ignored if others stay active
         }
@@ -1267,6 +1265,9 @@ class DeviceManager: ObservableObject {
         }
         if type != .hardware {
             selectedLoveSpouseProgram = 0
+        }
+        if type != .video {
+            StashVideoSyncManager.shared.stop()
         }
     }
 
@@ -1508,36 +1509,5 @@ class DeviceManager: ObservableObject {
         ossmDepthLimitMin = UserDefaults.standard.double(forKey: "ossmDepthLimitMin")
         ossmSensationLimitMax = UserDefaults.standard.object(forKey: "ossmSensationLimitMax") as? Double ?? 100
         ossmSensationLimitMin = UserDefaults.standard.double(forKey: "ossmSensationLimitMin")
-    }
-
-    // MARK: - Handy Sync Helper
-
-    private func prepareHandySync() {
-        guard let script = activeFunScript, let csvData = PatternEngine.convertToHandyCSV(script: script) else { return }
-        
-        // Skip if already synced this script
-        if let id = activeFunScriptId, id == lastSyncedScriptId { return }
-        
-        isSyncingScript = true
-        handyManager.uploadScript(data: csvData) { [weak self] result in
-            switch result {
-            case .success(let url):
-                self?.lastSyncedScriptURL = url
-                self?.lastSyncedScriptId = self?.activeFunScriptId
-                self?.handyManager.setupHSSP(url: url) { success in
-                    DispatchQueue.main.async {
-                        self?.isSyncingScript = false
-                        if success && (self?.isPlaying ?? false) {
-                            self?.handyManager.playHSSP(startTimeMs: Int(self?.funScriptPositionMs ?? 0)) { _ in }
-                        }
-                    }
-                }
-            case .failure(let error):
-                NSLog("❌ DeviceManager: Handy upload failed: \(error)")
-                DispatchQueue.main.async {
-                    self?.isSyncingScript = false
-                }
-            }
-        }
     }
 }

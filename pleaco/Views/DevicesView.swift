@@ -187,7 +187,7 @@ struct DeviceEditorSheet: View {
 
                 if deviceType == .handy || deviceType == .oh {
                     Section("Connection") {
-                        SecureField("Connection Key", text: $connectionKey)
+                        TextField("Connection Key", text: $connectionKey)
 
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Here's how to find your connection key:")

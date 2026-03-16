@@ -142,11 +142,12 @@ class PatternEngine {
         }
     }
 
-    static func convertToHandyCSV(script: FunScriptData) -> Data? {
-        var csvString = ""
-        for action in script.actions {
-            csvString += "\(action.at),\(action.pos)\n"
-        }
-        return csvString.data(using: .utf8)
+    static func convertToHandyJSON(script: FunScriptData) -> Data? {
+        let actions = script.actions.map { ["at": $0.at, "pos": $0.pos] }
+        let json: [String: Any] = [
+            "version": 1,
+            "actions": actions
+        ]
+        return try? JSONSerialization.data(withJSONObject: json)
     }
 }

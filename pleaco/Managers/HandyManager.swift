@@ -52,23 +52,27 @@ class HandyManager: ObservableObject {
     func startHamp() {
         if deviceType == "Oh." {
             NSLog("🔵 HandyManager (v3): Starting Oh. (mode 0, hvp)")
-            // API v3 has no mode 8. HVP works alongside mode 0 (HAMP) or default mode.
-            sendRequest(path: "/mode2", method: "PUT", params: ["mode": 0]) { _ in
+            sendRequest(path: "/mode", method: "PUT", params: ["mode": 0]) { _ in
                 self.sendRequest(path: "/hvp/start", method: "PUT") { _ in }
             }
         } else {
             // mode 0 = HAMP for The Handy
             NSLog("🔵 HandyManager (v3): Starting The Handy (mode 0, hamp)")
-            sendRequest(path: "/mode2", method: "PUT", params: ["mode": 0]) { _ in
+            sendRequest(path: "/mode", method: "PUT", params: ["mode": 0]) { _ in
                 self.sendRequest(path: "/hamp/start", method: "PUT") { _ in }
             }
         }
     }
 
-    func startDirectMode() {
+    func startDirectMode(completion: @escaping (Bool) -> Void = { _ in }) {
         // mode 2 = HDSP (Direct Streaming) for The Handy / Oh.
         NSLog("🔵 HandyManager (v3): Starting Direct Mode (mode 2, hdsp)")
-        sendRequest(path: "/mode2", method: "PUT", params: ["mode": 2]) { _ in }
+        sendRequest(path: "/mode", method: "PUT", params: ["mode": 2]) { result in
+            switch result {
+            case .success: completion(true)
+            case .failure: completion(false)
+            }
+        }
     }
     
     func stopMotion() {
@@ -107,8 +111,15 @@ class HandyManager: ObservableObject {
     }
     
     func setDirectLevel(level: Double) {
-        let pos = Int(max(0, min(100, level)))
-        sendRequest(path: "/hdsp/xpt", method: "PUT", params: ["position": pos]) { _ in }
+        if deviceType == "Oh." {
+            // Oh! has no slider, route FunScript position to vibration intensity
+            setHampVelocity(speed: level)
+        } else {
+            // Standard Handy slider position — v3 expects Integer 0-100
+            let pos = Int(max(0.0, min(100.0, level)))
+            // Add velocity -1 for "immediate" response
+            sendRequest(path: "/hdsp/xpt", method: "PUT", params: ["position": pos, "velocity": -1]) { _ in }
+        }
     }
     
     func setSlideRange(min: Double, max: Double) {
@@ -137,9 +148,8 @@ class HandyManager: ObservableObject {
 
     // MARK: - HSSP (Synchronized Script Playback)
 
-    func uploadScript(data: Data, completion: @escaping (Result<String, Error>) -> Void) {
+    func uploadScript(data: Data, completion: @escaping (Result<(url: String, sha256: String), Error>) -> Void) {
         // Handy v3 upload endpoint: POST /hssp/upload
-        // Note: This usually returns a URL and a SHA256 of the uploaded file
         NSLog("🔵 HandyManager (v3): Uploading FunScript...")
         
         let url = URL(string: "https://www.handyfeeling.com/api/handy-rest/v3/hssp/upload")!
@@ -154,8 +164,8 @@ class HandyManager: ObservableObject {
         
         var body = Data()
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"syncFile\"; filename=\"script.csv\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: text/csv\r\n\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"syncFile\"; filename=\"script.json\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: application/json\r\n\r\n".data(using: .utf8)!)
         body.append(data)
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
         request.httpBody = body
@@ -172,8 +182,9 @@ class HandyManager: ObservableObject {
             
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let result = json["result"] as? [String: Any],
-               let url = result["url"] as? String {
-                completion(.success(url))
+               let url = result["url"] as? String,
+               let sha256 = result["sha256"] as? String {
+                completion(.success((url: url, sha256: sha256)))
             } else {
                 let errStr = String(data: data, encoding: .utf8) ?? "unknown"
                 completion(.failure(NSError(domain: "HandyManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Upload failed: \(errStr)"])))
@@ -181,9 +192,9 @@ class HandyManager: ObservableObject {
         }.resume()
     }
 
-    func setupHSSP(url: String, completion: @escaping (Bool) -> Void) {
-        NSLog("🔵 HandyManager (v3): Setting up HSSP with URL: \(url)")
-        sendRequest(path: "/hssp/setup", method: "PUT", params: ["url": url]) { result in
+    func setupHSSP(url: String, sha256: String, completion: @escaping (Bool) -> Void) {
+        NSLog("🔵 HandyManager (v3): Setting up HSSP with URL: \(url) (SHA256: \(sha256))")
+        sendRequest(path: "/hssp/setup", method: "PUT", params: ["url": url, "sha256": sha256]) { result in
             switch result {
             case .success:
                 completion(true)
@@ -217,19 +228,29 @@ class HandyManager: ObservableObject {
         }
     }
 
-    func stopHSSP() {
+    func stopHSSP(completion: @escaping (Bool) -> Void = { _ in }) {
         NSLog("🔵 HandyManager (v3): Stopping HSSP")
-        sendRequest(path: "/hssp/stop", method: "PUT") { _ in }
+        sendRequest(path: "/hssp/stop", method: "PUT") { result in
+            switch result {
+            case .success: completion(true)
+            case .failure: completion(false)
+            }
+        }
     }
 
-    func getServerTime(completion: @escaping (Int?) -> Void) {
+    func getServerTime(completion: @escaping (Int64?) -> Void) {
         sendRequest(path: "/servertime") { result in
             switch result {
             case .success(let data):
                 if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let resultObj = json["result"] as? [String: Any],
-                   let serverTime = resultObj["serverTime"] as? Int {
+                   let serverTime = resultObj["serverTime"] as? Int64 {
                     completion(serverTime)
+                } else if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let resultObj = json["result"] as? [String: Any],
+                          let serverTime = resultObj["serverTime"] as? Double {
+                    // Handle double just in case
+                    completion(Int64(serverTime))
                 } else {
                     completion(nil)
                 }
@@ -241,11 +262,8 @@ class HandyManager: ObservableObject {
     
     private func sendRequest(path: String, method: String = "GET", params: [String: Any] = [:], completion: @escaping (Result<Data, Error>) -> Void = { _ in }) {
         guard !connectionKey.isEmpty else { return }
-        
-        // Cancel pending state updates if a new one arrives (only for frequent update paths)
-        if path == "/hvp/state" || path == "/hamp/velocity" || path == "/hdsp/xpt" {
-            currentTask?.cancel()
-        }
+        // No automatic cancellation for v3 state updates to prevent dropping requests at high frequency
+        // URLSession handles the queue internally
 
         var urlString = baseURL + path
         if method == "GET" {
