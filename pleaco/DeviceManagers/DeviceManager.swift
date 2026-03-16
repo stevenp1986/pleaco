@@ -235,6 +235,9 @@ class DeviceManager: ObservableObject {
     @Published var ossmSensationLimitMin: Double = 0 { didSet { UserDefaults.standard.set(ossmSensationLimitMin, forKey: "ossmSensationLimitMin") } }
     @Published var ossmSensationLimitMax: Double = 100 { didSet { UserDefaults.standard.set(ossmSensationLimitMax, forKey: "ossmSensationLimitMax") } }
     
+    @Published var isSyncingScript: Bool = false
+    private var lastSyncedScriptId: UUID? = nil
+    private var lastSyncedScriptURL: String? = nil
 
     private var handyManager = HandyManager.shared
     private var buttplugManager = ButtplugManager.shared
@@ -606,7 +609,10 @@ class DeviceManager: ObservableObject {
         // If a device is selected but not connected, and no audio is playing, we shouldn't start.
         if let device = activeDevice, !device.isConnected && activeAudioTrack == nil {
             NSLog("⚠️ DeviceManager: Cannot start, device '\(device.name)' is not connected.")
-            return
+            // Allow starting if it's a Handy being synced (it might report disconnected during setup)
+            if device.type != .handy || !isSyncingScript {
+                return
+            }
         }
 
         // If no device is selected and no audio track, then there's nothing to do.
@@ -669,8 +675,8 @@ class DeviceManager: ObservableObject {
             if RemoteManager.shared.isApplyingRemoteLevel {
                 // Remote levels drive LoveSpouse directly via setLevel — don't send a program command
                 break
-            } else if activeAudioTrack != nil {
-                // Must be 0 (manual mode) for Audio Sync to stream raw vibration levels
+            } else if activeAudioTrack != nil || activeVideoPlayer != nil {
+                // Must be 0 (manual mode) for Audio/Video Sync to stream raw vibration levels
                 loveSpouseManager.selectProgram(0)
             } else {
                 loveSpouseManager.selectProgram(selectedLoveSpouseProgram)
@@ -725,6 +731,7 @@ class DeviceManager: ObservableObject {
         NSLog("🛑 DeviceManager: STOP called (isPlaying: \(isPlaying))")
         
         handyManager.stopMotion()
+        handyManager.stopHSSP()
         buttplugManager.stopAllDevices()
         ossmManager.stop()
         hapticManager.stop()
@@ -800,6 +807,11 @@ class DeviceManager: ObservableObject {
         activeFunScriptId = nil
         funScriptPositionMs = 0
 
+        // If active device is Handy, prepare sync
+        if activeDevice?.type == .handy {
+            prepareHandySync()
+        }
+
         // Wait 0.1s for hardware to settle
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             if !self.isPlaying { self.start() } else { self.ensureHardwareStarted() }
@@ -840,6 +852,11 @@ class DeviceManager: ObservableObject {
         activeFunScript = namedScript.data
         activeFunScriptId = namedScript.id
         funScriptPositionMs = 0
+
+        // If active device is Handy, prepare sync
+        if activeDevice?.type == .handy {
+            prepareHandySync()
+        }
 
         // Wait 0.1s for hardware to settle
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -1047,37 +1064,54 @@ class DeviceManager: ObservableObject {
         // FunScript branch: 50 Hz timer advances position through the script
         if let script = activeFunScript {
             let fsInterval: TimeInterval
-            if activeDevice?.type == .handy || activeDevice?.type == .oh || activeDevice?.type == .ossm {
+            if activeDevice?.type == .handy || activeDevice?.type == .oh {
                 fsInterval = 0.1
+            } else if activeDevice?.type == .ossm {
+                fsInterval = 0.02
             } else if activeDevice?.type == .lovespouse {
                 fsInterval = 0.1
             } else {
                 fsInterval = 0.02
             }
+            
+            // If Handy HSSP is active, we don't send levels, just update local UI position
+            let isHandyHSSP = activeDevice?.type == .handy && lastSyncedScriptURL != nil
+            
             waveTimer = Timer.scheduledTimer(withTimeInterval: fsInterval, repeats: true) { [weak self] _ in
                 guard let self = self, self.isPlaying else {
                     self?.stopWaveTimer()
                     return
                 }
+                
+                // Sync with video player if present
+                if let player = self.activeVideoPlayer {
+                    let playerMs = player.currentTime().seconds * 1000.0
+                    if abs(self.funScriptPositionMs - playerMs) > 200 {
+                        self.funScriptPositionMs = playerMs
+                        if isHandyHSSP {
+                            self.handyManager.playHSSP(startTimeMs: Int(playerMs)) { _ in }
+                        }
+                    }
+                }
+                
                 self.funScriptPositionMs += fsInterval * 1000.0
                 let duration = Double(script.durationMs)
                 if duration > 0 {
                     self.funScriptPositionMs = self.funScriptPositionMs.truncatingRemainder(dividingBy: duration)
                 }
                 self.waveTime = self.funScriptPositionMs / 1000.0
+                
                 let pos = PatternEngine.interpolatedPos(script: script, atMs: self.funScriptPositionMs)
-                var speed = pos * self.masterIntensity
-
-                // For internal haptics, ensure we never hit absolute 0 during a pattern to maintain motor spin
-                if self.activeDevice?.type == .internal && speed < 5.0 {
-                    speed = 5.0
-                }
+                let speed = pos * self.masterIntensity
 
                 self.currentLevel = speed
-                if activeDevice?.type == .ossm || activeDevice?.type == .handy || activeDevice?.type == .oh {
-                    self.sendPosition(pos * 100.0)
-                } else {
-                    self.sendLevel(speed)
+                
+                if !isHandyHSSP {
+                    if activeDevice?.type == .ossm || activeDevice?.type == .handy || activeDevice?.type == .oh {
+                        self.sendPosition(pos * 100.0)
+                    } else {
+                        self.sendLevel(speed)
+                    }
                 }
             }
             return
@@ -1145,6 +1179,7 @@ class DeviceManager: ObservableObject {
         // to prevent command collisions that lead to "stuck" vibration.
         // Exception: remote-received levels always pass through.
         if device.type == .lovespouse && selectedLoveSpouseProgram > 0
+            && activeAudioTrack == nil && activeVideoPlayer == nil
             && !RemoteManager.shared.isApplyingRemoteLevel {
             return
         }
@@ -1473,5 +1508,36 @@ class DeviceManager: ObservableObject {
         ossmDepthLimitMin = UserDefaults.standard.double(forKey: "ossmDepthLimitMin")
         ossmSensationLimitMax = UserDefaults.standard.object(forKey: "ossmSensationLimitMax") as? Double ?? 100
         ossmSensationLimitMin = UserDefaults.standard.double(forKey: "ossmSensationLimitMin")
+    }
+
+    // MARK: - Handy Sync Helper
+
+    private func prepareHandySync() {
+        guard let script = activeFunScript, let csvData = PatternEngine.convertToHandyCSV(script: script) else { return }
+        
+        // Skip if already synced this script
+        if let id = activeFunScriptId, id == lastSyncedScriptId { return }
+        
+        isSyncingScript = true
+        handyManager.uploadScript(data: csvData) { [weak self] result in
+            switch result {
+            case .success(let url):
+                self?.lastSyncedScriptURL = url
+                self?.lastSyncedScriptId = self?.activeFunScriptId
+                self?.handyManager.setupHSSP(url: url) { success in
+                    DispatchQueue.main.async {
+                        self?.isSyncingScript = false
+                        if success && (self?.isPlaying ?? false) {
+                            self?.handyManager.playHSSP(startTimeMs: Int(self?.funScriptPositionMs ?? 0)) { _ in }
+                        }
+                    }
+                }
+            case .failure(let error):
+                NSLog("❌ DeviceManager: Handy upload failed: \(error)")
+                DispatchQueue.main.async {
+                    self?.isSyncingScript = false
+                }
+            }
+        }
     }
 }

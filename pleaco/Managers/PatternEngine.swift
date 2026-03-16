@@ -141,4 +141,12 @@ class PatternEngine {
             return max(0.0, min(1.0, (v1 + v2 + 1.0) / 2.0))
         }
     }
+
+    static func convertToHandyCSV(script: FunScriptData) -> Data? {
+        var csvString = ""
+        for action in script.actions {
+            csvString += "\(action.at),\(action.pos)\n"
+        }
+        return csvString.data(using: .utf8)
+    }
 }

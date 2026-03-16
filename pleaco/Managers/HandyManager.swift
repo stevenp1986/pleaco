@@ -134,6 +134,110 @@ class HandyManager: ObservableObject {
             }
         }
     }
+
+    // MARK: - HSSP (Synchronized Script Playback)
+
+    func uploadScript(data: Data, completion: @escaping (Result<String, Error>) -> Void) {
+        // Handy v3 upload endpoint: POST /hssp/upload
+        // Note: This usually returns a URL and a SHA256 of the uploaded file
+        NSLog("🔵 HandyManager (v3): Uploading FunScript...")
+        
+        let url = URL(string: "https://www.handyfeeling.com/api/handy-rest/v3/hssp/upload")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue(connectionKey, forHTTPHeaderField: "X-Connection-Key")
+        request.addValue(apiKey, forHTTPHeaderField: "X-Api-Key")
+        
+        // Multipart form-data for the file
+        let boundary = "Boundary-\(UUID().uuidString)"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"syncFile\"; filename=\"script.csv\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: text/csv\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+            guard let data = data else {
+                completion(.failure(NSError(domain: "HandyManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "No data returned"])))
+                return
+            }
+            
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let result = json["result"] as? [String: Any],
+               let url = result["url"] as? String {
+                completion(.success(url))
+            } else {
+                let errStr = String(data: data, encoding: .utf8) ?? "unknown"
+                completion(.failure(NSError(domain: "HandyManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Upload failed: \(errStr)"])))
+            }
+        }.resume()
+    }
+
+    func setupHSSP(url: String, completion: @escaping (Bool) -> Void) {
+        NSLog("🔵 HandyManager (v3): Setting up HSSP with URL: \(url)")
+        sendRequest(path: "/hssp/setup", method: "PUT", params: ["url": url]) { result in
+            switch result {
+            case .success:
+                completion(true)
+            case .failure(let error):
+                NSLog("❌ HandyManager (v3): HSSP setup failed: \(error)")
+                completion(false)
+            }
+        }
+    }
+
+    func playHSSP(startTimeMs: Int, completion: @escaping (Bool) -> Void) {
+        // We first need the server time for accurate sync
+        getServerTime { serverTime in
+            guard let serverTime = serverTime else {
+                completion(false)
+                return
+            }
+            
+            NSLog("🔵 HandyManager (v3): Starting HSSP at \(startTimeMs)ms (ServerTime: \(serverTime))")
+            self.sendRequest(path: "/hssp/play", method: "PUT", params: [
+                "estimatedServerTime": serverTime,
+                "startTime": startTimeMs
+            ]) { result in
+                switch result {
+                case .success:
+                    completion(true)
+                case .failure:
+                    completion(false)
+                }
+            }
+        }
+    }
+
+    func stopHSSP() {
+        NSLog("🔵 HandyManager (v3): Stopping HSSP")
+        sendRequest(path: "/hssp/stop", method: "PUT") { _ in }
+    }
+
+    func getServerTime(completion: @escaping (Int?) -> Void) {
+        sendRequest(path: "/servertime") { result in
+            switch result {
+            case .success(let data):
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let resultObj = json["result"] as? [String: Any],
+                   let serverTime = resultObj["serverTime"] as? Int {
+                    completion(serverTime)
+                } else {
+                    completion(nil)
+                }
+            case .failure:
+                completion(nil)
+            }
+        }
+    }
     
     private func sendRequest(path: String, method: String = "GET", params: [String: Any] = [:], completion: @escaping (Result<Data, Error>) -> Void = { _ in }) {
         guard !connectionKey.isEmpty else { return }

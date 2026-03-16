@@ -56,6 +56,7 @@ class StashVideoSyncManager: ObservableObject {
 
     // Pelvis joint tracking (from body pose)
     private var previousPelvisCentroid: CGPoint?
+    private var previousPelvisY: Float = 0.5
     private var pelvisReversalTimestamps: [Int] = []
 
     // Wrist tracking (from body pose)
@@ -63,6 +64,9 @@ class StashVideoSyncManager: ObservableObject {
     private var previousRightWrist: CGPoint?
     private var wristSpeedHistory: [Float] = []
     private let wristHistorySize = 6
+    
+    // Wave modulation
+    private var currentVerticalVelocity: Float = 0
 
     private var cancellables = Set<AnyCancellable>()
     private let analysisQueue = DispatchQueue(label: "com.pleaco.videoanalysis", qos: .userInteractive)
@@ -108,17 +112,42 @@ class StashVideoSyncManager: ObservableObject {
         displayLink = CADisplayLink(target: self, selector: #selector(updateDisplayLink))
         displayLink?.add(to: .main, forMode: .common)
         
+        // Listen for video end
+        NotificationCenter.default.addObserver(self, selector: #selector(videoDidEnd), name: .AVPlayerItemDidPlayToEndTime, object: playerItem)
+        
         isActive = true
         NSLog("🔔 StashVideoSyncManager: Setup complete")
     }
 
     @objc private func updateDisplayLink(link: CADisplayLink) {
         guard isActive, let output = videoOutput else { return }
+        
+        // If player is paused, ensure intensity is 0
+        if let player = DeviceManager.shared.activeVideoPlayer, player.rate == 0 {
+            if currentIntensity != 0 {
+                DispatchQueue.main.async {
+                    self.currentIntensity = 0
+                    DeviceManager.shared.setLevel(0)
+                }
+            }
+            return
+        }
+
         let itemTime = output.itemTime(forHostTime: CACurrentMediaTime())
         self.currentPlayerTime = itemTime.seconds
         if output.hasNewPixelBuffer(forItemTime: itemTime) {
             if let pixelBuffer = output.copyPixelBuffer(forItemTime: itemTime, itemTimeForDisplay: nil) {
                 processFrame(pixelBuffer)
+            }
+        }
+    }
+
+    @objc private func videoDidEnd(notification: Notification) {
+        NSLog("🔔 StashVideoSyncManager: Video ended - Looping")
+        DispatchQueue.main.async {
+            if let player = DeviceManager.shared.activeVideoPlayer {
+                player.seek(to: .zero)
+                player.play()
             }
         }
     }
@@ -226,7 +255,8 @@ class StashVideoSyncManager: ObservableObject {
         var vxAbsSum: Float = 0   // for horizontal dominance ratio
         var vyAbsSum: Float = 0
         var sampleCount = 0
-        let noiseFloor = Float(0.15 / (sensitivity + 0.1))
+        // Optical flow values are in pixels. 0.35 pixels is a reasonable noise floor.
+        let noiseFloor = Float(0.35 / (sensitivity + 0.1))
 
         for y in stride(from: 0, to: height, by: sampleStep) {
             let rowOffset = y * floatsPerRow
@@ -253,9 +283,13 @@ class StashVideoSyncManager: ObservableObject {
             }
         }
 
+        let currentFrame = frameCounter
+        reversalTimestamps = reversalTimestamps.filter { currentFrame - $0 <= reversalWindowFrames }
+
         guard sampleCount > 4 else {
             DispatchQueue.main.async {
-                self.hipIntensity *= Float(self.smoothing)
+                self.currentVerticalVelocity *= 0.7  // Rapid decay of wave pulse
+                self.hipIntensity = self.hipIntensity * Float(self.smoothing)
                 self.horzIntensity *= 0.85
                 self.currentIntensity = self.computeCurrentIntensity()
             }
@@ -274,39 +308,39 @@ class StashVideoSyncManager: ObservableObject {
         let recentAvgSpeed = recentSpeedHistory.reduce(0, +) / Float(recentSpeedHistory.count)
 
         let s = Float(sensitivity)
-        let levelCeiling: Float = s < 0.35 ? 0.33 : (s < 0.70 ? 0.66 : 1.0)
 
         let prevVy = previousDominantVy
-        let vertReversed = (prevVy > 0.008 && dominantVy < -0.008) || (prevVy < -0.008 && dominantVy > 0.008)
+        // Optical flow units are pixels. 0.08 pixels average is a better threshold for noise.
+        let vertReversed = (prevVy > 0.08 && dominantVy < -0.08) || (prevVy < -0.08 && dominantVy > 0.08)
         previousDominantVy = dominantVy
         previousDominantVx = dominantVx
 
-        let currentFrame = frameCounter
         if vertReversed { reversalTimestamps.append(currentFrame) }
-        reversalTimestamps = reversalTimestamps.filter { currentFrame - $0 <= reversalWindowFrames }
-
-        let reversalsInWindow = Float(reversalTimestamps.count)
-        let thrustFrequency = reversalsInWindow / (Float(reversalWindowFrames) / 30.0)
+        
+        // Recalculate frequency after potential new reversal
+        let updatedReversals = Float(reversalTimestamps.count)
+        let updatedFreq = updatedReversals / (Float(reversalWindowFrames) / 30.0)
+        
         let speedActive = recentAvgSpeed > (0.04 / max(0.1, s))
-
-        let freqRaw: Float
-        if !speedActive || reversalsInWindow < 1 {
-            freqRaw = 0.0
-        } else if thrustFrequency < 0.5 {
-            freqRaw = 0.33
-        } else if thrustFrequency < 1.5 {
-            freqRaw = 0.66
-        } else {
-            freqRaw = 1.0
-        }
-        let hipLevel = min(levelCeiling, freqRaw)
-
+        let freqRaw: Float = !speedActive || updatedReversals < 1 ? 0.0 : min(1.0, updatedFreq / 3.0)
+        
+        // Weight hip level by speed to ensure it decays naturally when motion stops
+        let hipLevel = freqRaw * min(1.0, recentAvgSpeed * 12.0)
+        self.currentVerticalVelocity = abs(dominantVy)
+        
         let horzLevel = min(1.0, recentAvgSpeed * horzRatio * s * 4.0)
 
+        let sm = Float(smoothing)
         DispatchQueue.main.async {
-            self.hipIntensity = hipLevel
+            self.hipIntensity = min(1.0, self.hipIntensity * sm + hipLevel * (1.0 - sm))
             self.horzIntensity = self.horzIntensity * 0.6 + horzLevel * 0.4
             self.currentIntensity = self.computeCurrentIntensity()
+            
+            // Log every 15 frames (~0.5s) for analysis
+            if currentFrame % 15 == 0 {
+                NSLog("📊 VR: %d revs | Freq: %.2f | SpeedWeight: %.2f | RawInt: %.2f | SmoothInt: %.2f", 
+                      Int(updatedReversals), updatedFreq, min(1.0, recentAvgSpeed * 12.0), hipLevel, self.hipIntensity)
+            }
         }
     }
 
@@ -344,6 +378,9 @@ class StashVideoSyncManager: ObservableObject {
     }
 
     private func analyzePelvisMovement(_ observation: VNHumanBodyPoseObservation) {
+        let currentFrame = frameCounter
+        pelvisReversalTimestamps = pelvisReversalTimestamps.filter { currentFrame - $0 <= reversalWindowFrames }
+
         let pelvisJoints: [VNHumanBodyPoseObservation.JointName] = [.leftHip, .rightHip, .root]
         var points: [CGPoint] = []
         for joint in pelvisJoints {
@@ -368,20 +405,20 @@ class StashVideoSyncManager: ObservableObject {
 
             let normalized = min(1.0, (delta / 0.05) * s)
 
-            let currentFrame = frameCounter
-            if let prevPrev = previousPelvisCentroid {
-                let prevDyVal = Float(prevPrev.y - prev.y)
-                let curDyVal = Float(prev.y - centroid.y)
-                let pelvisReversed = (prevDyVal > 0.005 && curDyVal < -0.005) || (prevDyVal < -0.005 && curDyVal > 0.005)
-                if pelvisReversed { pelvisReversalTimestamps.append(currentFrame) }
+            guard normalized > 0.01 else {
+                DispatchQueue.main.async { self.pelvisIntensity *= Float(self.smoothing) }
+                return
             }
-            pelvisReversalTimestamps = pelvisReversalTimestamps.filter { currentFrame - $0 <= reversalWindowFrames }
-
+            
+            let prevY = previousPelvisY
+            if (prevY > 0.52 && normalized < 0.48) || (prevY < 0.48 && normalized > 0.52) {
+                pelvisReversalTimestamps.append(currentFrame)
+            }
+            previousPelvisY = normalized
+            
             let pelvisReversals = Float(pelvisReversalTimestamps.count)
             let pelvisFreq = pelvisReversals / (Float(reversalWindowFrames) / 30.0)
-            let freqLevel: Float = pelvisFreq < 0.5 ? 0.33 : (pelvisFreq < 1.5 ? 0.66 : 1.0)
-            let levelCeiling: Float = s < 0.35 ? 0.33 : (s < 0.70 ? 0.66 : 1.0)
-            let pelvisLevel = normalized > 0.05 ? min(levelCeiling, freqLevel) : normalized * 0.5
+            let pelvisLevel = normalized > 0.05 ? min(1.0, pelvisFreq / 3.0) : normalized * 0.5
 
             let sm = Float(smoothing)
             DispatchQueue.main.async {
@@ -448,20 +485,29 @@ class StashVideoSyncManager: ObservableObject {
     }
 
     private func computeCurrentIntensity() -> Float {
+        let s = Float(sensitivity)
         let thrustSignal  = (hipIntensity + pelvisIntensity) * 0.5
         let manualSignal  = (headIntensity + wristIntensity) * 0.5
         let baseSignal = max(thrustSignal, manualSignal)
 
-        let thresholdShift = horzIntensity * 0.28
+        // Wave logic:
+        // currentVerticalVelocity (abs(dominantVy)) is in pixels/frame.
+        // In action scenes, typical values are 1.0 – 8.0.
+        // We scale it so ~3.0 pixels/frame starts to reach 1.0 saturation at mid-sensitivity (0.5).
+        let normalizedVelocity = min(1.0, currentVerticalVelocity * (0.3 + s * 0.6))
+        
+        // Final intensity = baseSignal (overall energy) * modulator (instantaneous movement)
+        // We keep the floor at 20% to ensure a clear "dip" at reversals
+        let finalValue = baseSignal * (0.2 + 0.8 * normalizedVelocity)
+        
+        if frameCounter % 15 == 0 {
+            NSLog("🌊 Wave: Vel: %.3f | NormVel: %.2f | Base: %.2f | Final: %.2f", 
+                  currentVerticalVelocity, normalizedVelocity, baseSignal, finalValue)
+        }
 
-        let t1 = max(0.10, 0.18 - thresholdShift)
-        let t2 = max(0.25, 0.45 - thresholdShift)
-        let t3 = max(0.45, 0.78 - thresholdShift)
-
-        if baseSignal < t1 { return 0.0 }
-        if baseSignal < t2 { return 0.33 }
-        if baseSignal < t3 { return 0.66 }
-        return 1.0
+        // Continuous ceiling based on sensitivity
+        let ceiling: Float = s < 0.3 ? 0.4 : (s < 0.7 ? 0.8 : 1.0)
+        return min(ceiling, finalValue)
     }
 
     // MARK: - Lifecycle
@@ -475,6 +521,9 @@ class StashVideoSyncManager: ObservableObject {
     private func cleanup() {
         displayLink?.invalidate()
         displayLink = nil
+        
+        NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: currentItem)
+        
         if let output = videoOutput, let item = currentItem { item.remove(output) }
         
         // Remove player from DeviceManager
@@ -502,6 +551,7 @@ class StashVideoSyncManager: ObservableObject {
         wristIntensity = 0
         horzIntensity = 0
         currentIntensity = 0
+        currentVerticalVelocity = 0
         lastError = nil
     }
 }
