@@ -140,9 +140,6 @@ struct MediaView: View {
                     .foregroundColor(.primary)
                     .lineLimit(1)
                 Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.secondary)
             }
             .padding(12)
             .appCardStyle()
@@ -225,9 +222,6 @@ struct MediaView: View {
                     .foregroundColor(.primary)
                     .lineLimit(2)
                 Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.secondary)
             }
             .padding(12)
             .appCardStyle()
