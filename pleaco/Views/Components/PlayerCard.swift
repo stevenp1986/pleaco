@@ -16,7 +16,9 @@ struct PlayerCard: View {
     @AppStorage("videoIsMuted") private var isMuted = false
 
     private var hasSliders: Bool {
-        deviceManager.activeDevice?.type != .lovespouse || deviceManager.activeAudioTrack != nil
+        deviceManager.activeVideoPlayer != nil ||
+        deviceManager.activeAudioTrack != nil ||
+        deviceManager.activeDevice?.type != .lovespouse
     }
 
     var body: some View {

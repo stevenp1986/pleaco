@@ -662,11 +662,13 @@ class DeviceManager: ObservableObject {
             handyManager.stopHSSP { [weak self] success in
                 guard let self = self, self.isPlaying else { return }
                 DispatchQueue.main.async {
-                    if (self.activeFunScript != nil || self.activeVideoPlayer != nil) && device.type != .oh {
-                        NSLog("🔵 DeviceManager: Entering Direct Mode for FunScript or Video Sync")
-                        self.handyManager.startDirectMode()
+                    if self.activeFunScript != nil && device.type != .oh {
+                        NSLog("🔵 DeviceManager: Entering Direct Mode for FunScript")
+                        self.handyManager.startDirectMode { [weak self] success in
+                            NSLog("🔵 DeviceManager: startDirectMode result=\(success), isPlaying=\(self?.isPlaying ?? false)")
+                        }
                     } else {
-                        NSLog("🔵 DeviceManager: Entering HAMP Mode for Vibration (forced for Oh! or Patterns)")
+                        NSLog("🔵 DeviceManager: Entering HAMP Mode")
                         self.handyManager.startHamp()
                         self.handyManager.setHampVelocity(speed: self.currentLevel)
                     }
@@ -1069,11 +1071,12 @@ class DeviceManager: ObservableObject {
     // MARK: - Wave Pattern Engine
 
     private func startWaveTimer() {
+        stopWaveTimer() // Invalidate any existing timer before creating a new one
         // FunScript branch: 50 Hz timer advances position through the script
         if let script = activeFunScript {
             let fsInterval: TimeInterval
             if activeDevice?.type == .handy || activeDevice?.type == .oh {
-                fsInterval = 0.01 // High res 100Hz streaming requested by user
+                fsInterval = 0.1 // 10Hz — HTTP round-trips ~100ms; cancel-before-new keeps queue at 1 in-flight
             } else if activeDevice?.type == .ossm {
                 fsInterval = 0.02
             } else if activeDevice?.type == .lovespouse {
@@ -1186,7 +1189,7 @@ class DeviceManager: ObservableObject {
 
         switch device.type {
         case .handy:
-            if activeVideoPlayer != nil {
+            if activeFunScript != nil {
                 handyManager.setDirectLevel(level: level)
             } else {
                 handyManager.setHampVelocity(speed: level)

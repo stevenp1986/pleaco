@@ -45,6 +45,11 @@ class OSSMManager: NSObject, ObservableObject {
     // Write mutex — prevents BLE command flooding (matches reference isWriting flag)
     private var isWriting: Bool = false
 
+    // Tracks the mode WE have sent — independent of hardware-reported deviceState
+    // (OSSM broadcasts its internal state continuously; we must not use that to
+    // gate our own go:strokeEngine commands or we'll spam the device every tick)
+    private var intendedMode: String = ""
+
     // Throttling state to prevent BLE flood
     private var lastSentSpeed: Int?
     private var lastSentDepth: Int?
@@ -93,15 +98,16 @@ class OSSMManager: NSObject, ObservableObject {
         // set:speed:0 pauses the motor without leaving strokeEngine mode
         sendCommand("set:speed:0")
         lastSentSpeed = 0
+        intendedMode = ""
     }
 
     func setLevel(_ level: Double) {
         let speed = Int(max(0, min(100, level)))
 
-        if deviceState != "strokeEngine" && deviceState != "pattern" {
-            // Must enter strokeEngine before sending speed
+        if intendedMode != "strokeEngine" && intendedMode != "pattern" {
+            // Must enter strokeEngine before sending speed — sent once per play session
             sendCommand("go:strokeEngine")
-            deviceState = "strokeEngine"
+            intendedMode = "strokeEngine"
         }
 
         if speed != lastSentSpeed {
@@ -118,9 +124,9 @@ class OSSMManager: NSObject, ObservableObject {
 
     // Streaming mode entry point — we use strokeEngine since firmware doesn't support streaming
     func startStreamingMode() {
-        if deviceState != "strokeEngine" && deviceState != "pattern" {
+        if intendedMode != "strokeEngine" && intendedMode != "pattern" {
             sendCommand("go:strokeEngine")
-            deviceState = "strokeEngine"
+            intendedMode = "strokeEngine"
         }
         NSLog("🔌 OSSMManager: FunScript mode active (strokeEngine)")
     }
@@ -176,13 +182,13 @@ class OSSMManager: NSObject, ObservableObject {
         }
 
         // go:strokeEngine must be active for patterns to run
-        if deviceState != "strokeEngine" && deviceState != "pattern" {
+        if intendedMode != "strokeEngine" && intendedMode != "pattern" {
             sendCommand("go:strokeEngine")
-            deviceState = "strokeEngine"
+            intendedMode = "strokeEngine"
         }
 
         sendCommand("set:pattern:\(patternIdx)")
-        deviceState = "pattern"
+        intendedMode = "pattern"
 
         // Force-reset sensation throttle so value is always sent fresh after pattern change
         lastSentSensation = nil
@@ -239,6 +245,7 @@ class OSSMManager: NSObject, ObservableObject {
         isReady = false
         isWriting = false
         deviceState = "idle"
+        intendedMode = ""
         lastSentSpeed = nil
         lastSentDepth = nil
         lastSentStroke = nil
@@ -369,8 +376,9 @@ extension OSSMManager: CBPeripheralDelegate {
                         if !state.contains("strokeEngine") && !state.contains("error") {
                             NSLog("🔵 OSSMManager: Not in strokeEngine, sending go:strokeEngine")
                             self.sendCommandDirect("go:strokeEngine")
-                            self.deviceState = "strokeEngine"
+                            self.intendedMode = "strokeEngine"
                         } else {
+                            self.intendedMode = "strokeEngine"
                             NSLog("🔵 OSSMManager: Already in strokeEngine/error, skipping go command")
                         }
                         self.isReady = true

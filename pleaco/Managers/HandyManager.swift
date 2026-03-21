@@ -103,24 +103,20 @@ class HandyManager: ObservableObject {
     }
     
     func setHampVelocity(speed: Double) {
-        // If speed is 0, we treat it as an explicit stop for maximum reliability
-        if speed <= 0 {
-            stopMotion()
-            return
-        }
-
         if deviceType == "Oh." {
-            // HVP State uses amplitude 0.0 - 1.0. 
+            // HVP State uses amplitude 0.0 - 1.0.
             // 75Hz is the default Sine resonance frequency for Oh! FW v4.
             let amplitude = max(0.0, min(1.0, speed / 100.0))
             sendRequest(path: "/hvp/state", method: "PUT", params: [
                 "amplitude": amplitude,
-                "frequency": 75, 
+                "frequency": 75,
                 "position": 50 // Standard mid-position for HVP
             ]) { _ in }
         } else {
-            // HAMP Velocity uses 0.0 - 1.0 in v3
-            let velocity = max(0.03, min(1.0, speed / 100.0)) // v3 likes a small floor for activity
+            // HAMP Velocity uses 0.0 - 1.0 in v3.
+            // Never call stopMotion() here — explicit stop happens via DeviceManager.stop().
+            // Sending 0 velocity would otherwise kill the HAMP session and silence subsequent updates.
+            let velocity = max(0.01, min(1.0, speed / 100.0))
             sendRequest(path: "/hamp/velocity", method: "PUT", params: ["velocity": velocity]) { _ in }
         }
     }
@@ -133,7 +129,11 @@ class HandyManager: ObservableObject {
             // Standard Handy slider position — v3 expects Integer 0-100
             let pos = Int(max(0.0, min(100.0, level)))
             // Add velocity -1 for "immediate" response
-            sendRequest(path: "/hdsp/xpt", method: "PUT", params: ["position": pos, "velocity": -1]) { _ in }
+            sendRequest(path: "/hdsp/xpt", method: "PUT", params: ["position": pos, "velocity": -1]) { result in
+                if case .failure(let err) = result {
+                    NSLog("❌ HandyManager: /hdsp/xpt pos=\(pos) failed: \(err.localizedDescription)")
+                }
+            }
         }
     }
     
@@ -296,19 +296,36 @@ class HandyManager: ObservableObject {
         }
         
         guard let url = URL(string: urlString) else { return }
+        // High-frequency paths get a short timeout to prevent stale request backlogs.
+        // At 10 Hz the interval (~100 ms) matches typical HTTP RTT, so explicit cancellation
+        // would kill requests right before they complete — causing the jerky behaviour.
+        // Rate-capping at the call site is the right solution; cancel is reserved for
+        // cancelPendingOperations() on stop/restart cycles.
+        let cancelsPrevious = false
+        let isHighFreq = path == "/hvp/state" || path == "/hamp/velocity" || path == "/hdsp/xpt"
+
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.timeoutInterval = 7.0 
-        
+        // High-frequency state updates use a short timeout so stale requests don't pile up.
+        // Control/setup calls keep the original 7s timeout.
+        request.timeoutInterval = isHighFreq ? 2.0 : 7.0
+
         // v3 Required Headers
         request.addValue(connectionKey, forHTTPHeaderField: "X-Connection-Key")
         request.addValue(apiKey, forHTTPHeaderField: "X-Api-Key")
-        
+
         if method != "GET" && !params.isEmpty {
             request.httpBody = try? JSONSerialization.data(withJSONObject: params)
             request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        
+
+        // For velocity/state paths, cancel the in-flight request before issuing a new one.
+        // Without this, a slow/dropped connection accumulates hundreds of queued tasks that
+        // all time out seconds later, flooding the log and starving the URLSession queue.
+        if cancelsPrevious {
+            currentTask?.cancel()
+        }
+
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 if (error as NSError).code == NSURLErrorCancelled {
@@ -318,7 +335,7 @@ class HandyManager: ObservableObject {
                 completion(.failure(error))
                 return
             }
-            
+
             if let httpResponse = response as? HTTPURLResponse, !(200...299).contains(httpResponse.statusCode) {
                 let errStr = data.flatMap { String(data: $0, encoding: .utf8) } ?? "unknown error"
                 // Prevent extreme log spam for state updates, log once per failure payload
@@ -329,16 +346,16 @@ class HandyManager: ObservableObject {
                 completion(.failure(errorDesc))
                 return
             }
-            
+
             if let data = data {
                 completion(.success(data))
             }
         }
-        
-        if path == "/hvp/state" || path == "/hamp/velocity" || path == "/hdsp/xpt" {
-            self.currentTask = task
+
+        if isHighFreq {
+            currentTask = task
         }
-        
+
         task.resume()
     }
 }
