@@ -6,6 +6,7 @@
 #if !os(tvOS)
 import Foundation
 import AVFoundation
+import MediaToolbox
 import Vision
 import Combine
 import SwiftUI
@@ -63,7 +64,7 @@ class StashVideoSyncManager: ObservableObject {
     private var recentSpeedHistory: [Float] = []
     private let speedHistorySize = 8
     private var reversalTimestamps: [Int] = []
-    private let reversalWindowFrames = 90       // ~3s at 30fps
+    private let reversalWindowFrames = 45       // ~1.5s at 30fps — faster adaptation to rhythm changes
 
     // Pelvis joint tracking (from body pose)
     private var previousPelvisCentroid: CGPoint?
@@ -85,6 +86,15 @@ class StashVideoSyncManager: ObservableObject {
     private var hipAccum: Float = 0
     private var headAccum: Float = 0
     private var wristAccum: Float = 0
+
+    // Instantaneous speed signal (no reversal window needed — responds immediately)
+    private var rawMotionIntensity: Float = 0
+
+    // Audio analysis from video track via MTAudioProcessingTap
+    @Published var audioIntensity: Float = 0.0
+    private var audioTap: MTAudioProcessingTap?
+    private var audioPeakRms: Float = 0.005
+    private var audioSmoothed: Float = 0.0
 
     private var cancellables = Set<AnyCancellable>()
     private let analysisQueue = DispatchQueue(label: "com.pleaco.videoanalysis", qos: .userInteractive)
@@ -129,6 +139,9 @@ class StashVideoSyncManager: ObservableObject {
         ]
         videoOutput = AVPlayerItemVideoOutput(pixelBufferAttributes: settings)
         if let output = videoOutput { playerItem.add(output) }
+
+        // Install audio tap on the video's audio track for real-time RMS analysis
+        installAudioTap(on: playerItem)
 
         // Load duration asynchronously
         Task {
@@ -383,8 +396,10 @@ class StashVideoSyncManager: ObservableObject {
         
         let horzLevel = min(1.0, recentAvgSpeed * horzRatio * s * 4.0)
 
+        let instantSpeed = min(1.0, recentAvgSpeed * 8.0 * Float(cachedSensitivity + 0.3))
         let sm = Float(cachedSmoothing)
         DispatchQueue.main.async {
+            self.rawMotionIntensity = instantSpeed
             self.hipIntensity = min(1.0, self.hipIntensity * sm + hipLevel * (1.0 - sm))
             self.horzIntensity = self.horzIntensity * 0.6 + horzLevel * 0.4
             self.currentIntensity = self.computeCurrentIntensity()
@@ -537,6 +552,99 @@ class StashVideoSyncManager: ObservableObject {
         }
     }
 
+    // MARK: - Audio Analysis
+
+    private func installAudioTap(on playerItem: AVPlayerItem) {
+        Task {
+            guard let audioTrack = try? await playerItem.asset.loadTracks(withMediaType: .audio).first else {
+                NSLog("🔔 StashVideoSyncManager: No audio track found, skipping audio tap")
+                return
+            }
+
+            let selfPtr = Unmanaged.passRetained(self).toOpaque()
+
+            var callbacks = MTAudioProcessingTapCallbacks(
+                version: kMTAudioProcessingTapCallbacksVersion_0,
+                clientInfo: selfPtr,
+                init: { tap, clientInfo, tapStorageOut in
+                    tapStorageOut.pointee = clientInfo
+                },
+                finalize: { tap in
+                    let storage = MTAudioProcessingTapGetStorage(tap)
+                    Unmanaged<StashVideoSyncManager>.fromOpaque(storage).release()
+                },
+                prepare: nil,
+                unprepare: nil,
+                process: { tap, numberFrames, _, bufferListInOut, numberFramesOut, flagsOut in
+                    MTAudioProcessingTapGetSourceAudio(tap, numberFrames, bufferListInOut, flagsOut, nil, numberFramesOut)
+                    let storage = MTAudioProcessingTapGetStorage(tap)
+                    let mgr = Unmanaged<StashVideoSyncManager>.fromOpaque(storage).takeUnretainedValue()
+                    mgr.processAudioSamples(bufferListInOut: bufferListInOut, frameCount: Int(numberFrames))
+                }
+            )
+
+            var tapRef: MTAudioProcessingTap?
+            let status = MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PostEffects, &tapRef)
+            guard status == noErr, let tap = tapRef else {
+                NSLog("❌ StashVideoSyncManager: MTAudioProcessingTapCreate failed: \(status)")
+                Unmanaged<StashVideoSyncManager>.fromOpaque(selfPtr).release()
+                return
+            }
+            let inputParams = AVMutableAudioMixInputParameters(track: audioTrack)
+            inputParams.audioTapProcessor = tap
+
+            let audioMix = AVMutableAudioMix()
+            audioMix.inputParameters = [inputParams]
+
+            await MainActor.run {
+                self.audioTap = tap
+                playerItem.audioMix = audioMix
+                NSLog("🔔 StashVideoSyncManager: Audio tap installed")
+            }
+        }
+    }
+
+    // Called from the real-time audio tap callback on an audio thread
+    func processAudioSamples(bufferListInOut: UnsafeMutablePointer<AudioBufferList>, frameCount: Int) {
+        guard frameCount > 0 else { return }
+
+        var sumSquares: Float = 0
+        var totalSamples = 0
+
+        let audioBuffers = UnsafeMutableAudioBufferListPointer(bufferListInOut)
+        for buffer in audioBuffers {
+            guard let data = buffer.mData else { continue }
+            let count = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
+            guard count > 0 else { continue }
+            let samples = data.assumingMemoryBound(to: Float.self)
+            for i in 0..<count {
+                let s = samples[i]
+                sumSquares += s * s
+            }
+            totalSamples += count
+        }
+        guard totalSamples > 0 else { return }
+
+        let rms = sqrt(sumSquares / Float(totalSamples))
+
+        // AGC: fast attack, slow decay
+        if rms > audioPeakRms { audioPeakRms = rms }
+        else { audioPeakRms = audioPeakRms * 0.9995 + rms * 0.0005 }
+        audioPeakRms = max(audioPeakRms, 0.005)
+
+        let normalized = min(1.0, rms / audioPeakRms * Float(cachedSensitivity + 0.5))
+        let target: Float = normalized < 0.05 ? 0.0 : normalized
+
+        let alpha: Float = target > audioSmoothed ? 0.5 : 0.1
+        audioSmoothed = target * alpha + audioSmoothed * (1.0 - alpha)
+
+        let finalLevel = audioSmoothed
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, self.isActive else { return }
+            self.audioIntensity = finalLevel
+        }
+    }
+
     private func computeCurrentIntensity() -> Float {
         let s = Float(cachedSensitivity)
 
@@ -561,28 +669,33 @@ class StashVideoSyncManager: ObservableObject {
             else if headAccum > wristAccum * threshold { dominantChannel = .head }
         }
 
-        let normalizedVelocity = min(1.0, currentVerticalVelocity * (0.5 + s * 1.0))
-
         let output: Float
         switch dominantChannel {
         case .hip:
-            // Vertical rhythm: velocity modulates amplitude, lateral adds a small boost
-            let horzBoost = horzIntensity * (1.0 - normalizedVelocity * 0.5) * 0.3
-            output = max(hipIntensity, pelvisIntensity) * (0.05 + 0.95 * min(1.0, normalizedVelocity + horzBoost))
+            // Fix: velocity was used as multiplier → toy stopped at every reversal point.
+            // Now: rhythm signal is primary, instant speed + lateral are small additive boosts.
+            let horzBoost = horzIntensity * 0.15
+            let instantBoost = min(0.25, rawMotionIntensity * 0.25)
+            let rhythmSignal = max(hipIntensity, pelvisIntensity)
+            output = min(1.0, rhythmSignal * 0.75 + instantBoost + horzBoost)
         case .head:
-            // Head tempo: direct mapping, no velocity interference
+            // Head tempo: direct mapping
             output = headIntensity
         case .wrist:
             // Hand speed: direct with small lateral blend
             output = wristIntensity * 0.9 + horzIntensity * 0.1
         }
 
+        // Blend in audio signal from video track (30% weight)
+        let visualOutput = min(1.0, output)
+        let blended = min(1.0, visualOutput * 0.7 + audioIntensity * 0.3)
+
         if frameCounter % 15 == 0 {
-            NSLog("🎯 Scene: %@ | Hip:%.2f Head:%.2f Wrist:%.2f | Out:%.2f",
-                  String(describing: dominantChannel), hipAccum, headAccum, wristAccum, output)
+            NSLog("🎯 Scene: %@ | Hip:%.2f Head:%.2f Wrist:%.2f | Vis:%.2f Audio:%.2f Out:%.2f",
+                  String(describing: dominantChannel), hipAccum, headAccum, wristAccum, visualOutput, audioIntensity, blended)
         }
 
-        return min(1.0, output)
+        return blended
     }
 
     // MARK: - Lifecycle
@@ -608,6 +721,14 @@ class StashVideoSyncManager: ObservableObject {
              DeviceManager.shared.activeVideoTitle = nil
         }
         
+        // Release audio tap (finalize callback releases retained self pointer)
+        currentItem?.audioMix = nil
+        audioTap = nil
+        audioIntensity = 0
+        audioSmoothed = 0
+        audioPeakRms = 0.005
+        rawMotionIntensity = 0
+
         videoOutput = nil
         currentItem = nil
         previousPixelBuffer = nil

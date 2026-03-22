@@ -159,6 +159,7 @@ struct VideoPlayerView: View {
                         IntensityBar(label: "Head",     value: syncManager.headIntensity,    color: .purple)
                         IntensityBar(label: "Hands",    value: syncManager.wristIntensity,   color: .blue)
                         IntensityBar(label: "Lateral",  value: syncManager.horzIntensity,    color: .cyan)
+                        IntensityBar(label: "Audio",    value: syncManager.audioIntensity,   color: .green)
                         Divider().padding(.vertical, 4)
                         IntensityBar(label: "Output · \({ switch syncManager.dominantChannel { case .hip: return "Hip"; case .head: return "Head"; case .wrist: return "Hand" }  }())", value: syncManager.currentIntensity, color: Color.appAccent, isMain: true)
                     }
