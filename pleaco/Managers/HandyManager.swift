@@ -301,7 +301,6 @@ class HandyManager: ObservableObject {
         // would kill requests right before they complete — causing the jerky behaviour.
         // Rate-capping at the call site is the right solution; cancel is reserved for
         // cancelPendingOperations() on stop/restart cycles.
-        let cancelsPrevious = false
         let isHighFreq = path == "/hvp/state" || path == "/hamp/velocity" || path == "/hdsp/xpt"
 
         var request = URLRequest(url: url)
@@ -317,13 +316,6 @@ class HandyManager: ObservableObject {
         if method != "GET" && !params.isEmpty {
             request.httpBody = try? JSONSerialization.data(withJSONObject: params)
             request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        }
-
-        // For velocity/state paths, cancel the in-flight request before issuing a new one.
-        // Without this, a slow/dropped connection accumulates hundreds of queued tasks that
-        // all time out seconds later, flooding the log and starving the URLSession queue.
-        if cancelsPrevious {
-            currentTask?.cancel()
         }
 
         let task = URLSession.shared.dataTask(with: request) { data, response, error in

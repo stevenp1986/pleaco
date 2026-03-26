@@ -118,17 +118,23 @@ class VideoLibraryManager: ObservableObject {
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: 320, height: 180)
 
-        // Try 2 seconds in, fallback to 0
-        let times: [CMTime] = [CMTime(seconds: 2, preferredTimescale: 600),
-                                CMTime(seconds: 0, preferredTimescale: 600)]
-        for time in times {
-            if let cgImage = try? generator.copyCGImage(at: time, actualTime: nil) {
-                let uiImage = UIImage(cgImage: cgImage)
-                if let data = uiImage.jpegData(compressionQuality: 0.7) {
-                    return data
-                }
+        let times: [NSValue] = [
+            NSValue(time: CMTime(seconds: 2, preferredTimescale: 600)),
+            NSValue(time: CMTime(seconds: 0, preferredTimescale: 600))
+        ]
+        var result: Data?
+        let semaphore = DispatchSemaphore(value: 0)
+        var remaining = times.count
+
+        generator.generateCGImagesAsynchronously(forTimes: times) { _, cgImage, _, result_, _ in
+            defer {
+                remaining -= 1
+                if remaining == 0 { semaphore.signal() }
             }
+            guard result == nil, result_ == .succeeded, let cgImage = cgImage else { return }
+            result = UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.7)
         }
-        return nil
+        semaphore.wait()
+        return result
     }
 }

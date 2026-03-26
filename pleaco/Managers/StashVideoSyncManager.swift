@@ -672,12 +672,12 @@ class StashVideoSyncManager: ObservableObject {
         let output: Float
         switch dominantChannel {
         case .hip:
-            // Fix: velocity was used as multiplier → toy stopped at every reversal point.
-            // Now: rhythm signal is primary, instant speed + lateral are small additive boosts.
-            let horzBoost = horzIntensity * 0.15
-            let instantBoost = min(0.25, rawMotionIntensity * 0.25)
             let rhythmSignal = max(hipIntensity, pelvisIntensity)
-            output = min(1.0, rhythmSignal * 0.75 + instantBoost + horzBoost)
+            // rawMotionIntensity only fills in when rhythm hasn't built up yet (scene start / slow scenes)
+            let warmup = rawMotionIntensity * max(0.0, 0.25 - rhythmSignal)
+            let horzBoost = horzIntensity * 0.08
+            // Apply sensitivity so default (0.5) gives ~65% of max, not 100%
+            output = min(1.0, (rhythmSignal + warmup + horzBoost) * (0.35 + s * 0.65))
         case .head:
             // Head tempo: direct mapping
             output = headIntensity
